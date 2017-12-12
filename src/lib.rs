@@ -17,7 +17,7 @@ mod body;
 mod flush;
 mod recv_body;
 
-pub use body::Body;
+pub use body::{Body, BoxBody, UnsyncBoxBody};
 pub use client::Client;
 pub use recv_body::{RecvBody, Data};
 pub use server::Server;
