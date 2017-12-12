@@ -16,8 +16,16 @@ pub mod server;
 mod body;
 mod flush;
 mod recv_body;
+mod service;
 
 pub use body::{Body, BoxBody, UnsyncBoxBody};
 pub use client::Client;
 pub use recv_body::{RecvBody, Data};
 pub use server::Server;
+pub use service::HttpService;
+
+mod sealed {
+    /// Private trait to this crate to prevent traits from being implemented in
+    /// downstream crates.
+    pub trait Sealed {}
+}
