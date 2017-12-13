@@ -4,19 +4,28 @@ use http::{Request, Response};
 use futures::{Future, Poll};
 use tower::Service;
 
-/// An HTTP (2.0) service that backs the gRPC client
+/// An HTTP service
 ///
 /// This is not intended to be implemented directly. Instead, it is a trait
-/// alias of sorts. Implement the `tower::Service` trait using `http::Request`
+/// alias of sorts. Implements the `tower::Service` trait using `http::Request`
 /// and `http::Response` types.
 pub trait HttpService: ::sealed::Sealed {
+    /// Request payload.
     type RequestBody: Body;
+
+    /// Response payload.
     type ResponseBody: Body;
+
+    /// Errors produced by the service.
     type Error;
+
+    /// The future response value.
     type Future: Future<Item = Response<Self::ResponseBody>, Error = Self::Error>;
 
+    /// Returns `Ready` when the service is able to process requests.
     fn poll_ready(&mut self) -> Poll<(), Self::Error>;
 
+    /// Process the request and return the response asynchronously.
     fn call(&mut self, request: Request<Self::RequestBody>) -> Self::Future;
 }
 
