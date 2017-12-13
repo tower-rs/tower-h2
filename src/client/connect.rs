@@ -1,23 +1,22 @@
 use {Body, RecvBody};
-use super::{Service, Background};
+use super::{Connection, Background};
 
 use futures::{Future, Async, Poll};
 use futures::future::Executor;
 use h2;
-use h2::client::Connection;
 use http::{Request, Response};
-use tokio_connect::Connect;
+use tokio_connect;
 
 use std::boxed::Box;
 use std::marker::PhantomData;
 
-/// Establishes a Client on an H2 connection.
+/// Establishes an H2 client connection.
 ///
 /// Has a builder-like API for configuring client connections.  Currently this only allows
 /// the configuration of TLS transport on new services created by this factory.
-pub struct Client<C, E, S> {
+pub struct Connect<C, E, S> {
     /// Establish new session layer values (usually TCP sockets w/ TLS).
-    connect: C,
+    inner: C,
 
     /// H2 client configuration
     builder: h2::client::Builder,
@@ -30,9 +29,9 @@ pub struct Client<C, E, S> {
     _p: PhantomData<S>,
 }
 
-/// Completes with a Service when the H2 connection has been initialized.
+/// Completes with a Connection when the H2 connection has been initialized.
 pub struct ConnectFuture<C, E, S>
-where C: Connect + 'static,
+where C: tokio_connect::Connect + 'static,
       S: Body + 'static,
 {
     future: Box<Future<Item = Connected<S::Data, C::Connected>, Error = ConnectError<C::Error>>>,
@@ -41,7 +40,7 @@ where C: Connect + 'static,
 }
 
 /// The type yielded by an h2 client handshake future
-type Connected<S, C> = (h2::client::Client<S>, Connection<C, S>);
+type Connected<S, C> = (h2::client::Client<S>, h2::client::Connection<C, S>);
 
 /// Error produced when establishing an H2 client connection.
 #[derive(Debug)]
@@ -57,23 +56,23 @@ pub enum ConnectError<T> {
     Execute,
 }
 
-// ===== impl Client =====
+// ===== impl Connect =====
 
-impl<C, E, S> Client<C, E, S>
+impl<C, E, S> Connect<C, E, S>
 where
-    C: Connect,
+    C: tokio_connect::Connect,
     E: Executor<Background<C, S>> + Clone,
     S: Body,
 {
-    /// Create a new `Client`.
+    /// Create a new `Connect`.
     ///
     /// The `connect` argument is used to obtain new session layer instances
     /// (`AsyncRead` + `AsyncWrite`). For each new client service returned, a
     /// task will be spawned onto `executor` that will be used to manage the H2
     /// connection.
-    pub fn new(connect: C, builder: h2::client::Builder, executor: E) -> Self {
-        Client {
-            connect,
+    pub fn new(inner: C, builder: h2::client::Builder, executor: E) -> Self {
+        Connect {
+            inner,
             executor,
             builder,
             _p: PhantomData,
@@ -81,9 +80,9 @@ where
     }
 }
 
-impl<C, E, S> ::tower::NewService for Client<C, E, S>
+impl<C, E, S> ::tower::NewService for Connect<C, E, S>
 where
-    C: Connect + 'static,
+    C: tokio_connect::Connect + 'static,
     E: Executor<Background<C, S>> + Clone,
     S: Body + 'static,
 {
@@ -91,13 +90,13 @@ where
     type Response = Response<RecvBody>;
     type Error = super::Error;
     type InitError = ConnectError<C::Error>;
-    type Service = Service<C, E, S>;
+    type Service = Connection<C, E, S>;
     type Future = ConnectFuture<C, E, S>;
 
-    /// Obtains a Service on a single plaintext h2 connection to a remote.
+    /// Obtains a Connection on a single plaintext h2 connection to a remote.
     fn new_service(&self) -> Self::Future {
         let client = self.builder.clone();
-        let conn = self.connect.connect()
+        let conn = self.inner.connect()
             .map_err(ConnectError::Connect)
             .and_then(move |io| {
                 client
@@ -117,11 +116,11 @@ where
 
 impl<C, E, S> Future for ConnectFuture<C, E, S>
 where
-    C: Connect,
+    C: tokio_connect::Connect,
     E: Executor<Background<C, S>> + Clone,
     S: Body,
 {
-    type Item = Service<C, E, S>;
+    type Item = Connection<C, E, S>;
     type Error = ConnectError<C::Error>;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
@@ -133,7 +132,7 @@ where
         self.executor.execute(task).map_err(|_| ConnectError::Execute)?;
 
         // Create an instance of the service
-        let service = Service::new(client, self.executor.clone());
+        let service = Connection::new(client, self.executor.clone());
 
         Ok(Async::Ready(service))
     }

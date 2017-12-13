@@ -19,7 +19,6 @@ mod recv_body;
 mod service;
 
 pub use body::{Body, BoxBody, UnsyncBoxBody};
-pub use client::Client;
 pub use recv_body::{RecvBody, Data};
 pub use server::Server;
 pub use service::HttpService;

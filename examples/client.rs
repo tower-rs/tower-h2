@@ -14,11 +14,11 @@ use bytes::Bytes;
 use http::{Request, Response};
 use std::net::SocketAddr;
 use string::{String, TryFrom};
-use tokio_connect::Connect;
 use tokio_core::net::TcpStream;
 use tokio_core::reactor::{Core, Handle};
 use tower::{NewService, Service};
-use tower_h2::{Body, Client, RecvBody};
+use tower_h2::{Body, RecvBody};
+use tower_h2::client::Connect;
 use h2::Reason;
 
 pub struct Conn(SocketAddr, Handle);
@@ -31,7 +31,7 @@ fn main() {
 
     let addr = "[::1]:8888".parse().unwrap();
 
-    impl Connect for Conn {
+    impl tokio_connect::Connect for Conn {
         type Connected = TcpStream;
         type Error = ::std::io::Error;
         type Future = Box<Future<Item = TcpStream, Error = ::std::io::Error>>;
@@ -44,7 +44,7 @@ fn main() {
     }
 
     let conn = Conn(addr, reactor.clone());
-    let h2 = Client::<Conn, Handle, ()>::new(conn, Default::default(), reactor);
+    let h2 = Connect::<Conn, Handle, ()>::new(conn, Default::default(), reactor);
 
     let done = h2.new_service()
         .map_err(|_| Reason::REFUSED_STREAM.into())
@@ -64,7 +64,7 @@ fn main() {
 /// Avoids overflowing max concurrent streams
 struct Serial {
     count: usize,
-    h2: tower_h2::client::Service<Conn, Handle, ()>,
+    h2: tower_h2::client::Connection<Conn, Handle, ()>,
     pending: Option<Box<Future<Item = (), Error = tower_h2::client::Error>>>,
 }
 

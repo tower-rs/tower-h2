@@ -9,11 +9,12 @@ use h2;
 use h2::client::{self, Client};
 use http::{self, Request, Response};
 use tokio_connect::Connect;
+use tower::Service;
 
 use std::marker::PhantomData;
 
 /// Exposes a request/response API on an h2 client connection..
-pub struct Service<C, E, S>
+pub struct Connection<C, E, S>
 where S: Body,
 {
     client: Client<S::Data>,
@@ -39,7 +40,7 @@ enum Inner {
     Error(Option<Error>),
 }
 
-/// Errors produced by client `Service` calls.
+/// Errors produced by client `Connection` calls.
 #[derive(Debug)]
 pub struct Error {
     kind: Kind,
@@ -51,19 +52,19 @@ enum Kind {
     Spawn,
 }
 
-// ===== impl Service =====
+// ===== impl Connection =====
 
-impl<C, E, S> Service<C, E, S>
+impl<C, E, S> Connection<C, E, S>
 where S: Body,
       S::Data: IntoBuf + 'static,
       C: Connect,
       E: Executor<Background<C, S>>,
 {
-    /// Builds Service on an H2 client connection.
+    /// Builds Connection on an H2 client connection.
     pub(super) fn new(client: Client<S::Data>, executor: E) -> Self {
         let _p = PhantomData;
 
-        Service {
+        Connection {
             client,
             executor,
             _p,
@@ -71,16 +72,16 @@ where S: Body,
     }
 }
 
-impl<C, E, S> Service<C, E, S>
+impl<C, E, S> Connection<C, E, S>
 where S: Body,
       S::Data: IntoBuf + 'static,
       C: Connect,
       E: Executor<Background<C, S>> + Clone,
 {
-    pub fn clone_handle<S2>(&self) -> Service<C, E, S2>
+    pub fn clone_handle<S2>(&self) -> Connection<C, E, S2>
     where S2: Body<Data=S::Data>,
     {
-        Service {
+        Connection {
             client: self.client.clone(),
             executor: self.executor.clone(),
             _p: PhantomData,
@@ -88,12 +89,12 @@ where S: Body,
     }
 }
 
-impl<C, E, S> Clone for Service<C, E, S>
+impl<C, E, S> Clone for Connection<C, E, S>
 where S: Body,
       E: Clone,
 {
     fn clone(&self) -> Self {
-        Service {
+        Connection {
             client: self.client.clone(),
             executor: self.executor.clone(),
             _p: PhantomData,
@@ -101,7 +102,7 @@ where S: Body,
     }
 }
 
-impl<C, E, S> ::tower::Service for Service<C, E, S>
+impl<C, E, S> Service for Connection<C, E, S>
 where S: Body + 'static,
       S::Data: IntoBuf + 'static,
       C: Connect,
