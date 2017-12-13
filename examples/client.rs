@@ -64,7 +64,7 @@ fn main() {
 /// Avoids overflowing max concurrent streams
 struct Serial {
     count: usize,
-    h2: tower_h2::client::Service<Conn, Handle, ()>,
+    h2: tower_h2::client::Connection<Conn, Handle, ()>,
     pending: Option<Box<Future<Item = (), Error = tower_h2::client::Error>>>,
 }
 

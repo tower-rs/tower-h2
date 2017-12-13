@@ -1,10 +1,9 @@
 use {Body, RecvBody};
-use super::{Service, Background};
+use super::{Connection, Background};
 
 use futures::{Future, Async, Poll};
 use futures::future::Executor;
 use h2;
-use h2::client::Connection;
 use http::{Request, Response};
 use tokio_connect::Connect;
 
@@ -30,7 +29,7 @@ pub struct Client<C, E, S> {
     _p: PhantomData<S>,
 }
 
-/// Completes with a Service when the H2 connection has been initialized.
+/// Completes with a Connection when the H2 connection has been initialized.
 pub struct ConnectFuture<C, E, S>
 where C: Connect + 'static,
       S: Body + 'static,
@@ -41,7 +40,7 @@ where C: Connect + 'static,
 }
 
 /// The type yielded by an h2 client handshake future
-type Connected<S, C> = (h2::client::Client<S>, Connection<C, S>);
+type Connected<S, C> = (h2::client::Client<S>, h2::client::Connection<C, S>);
 
 /// Error produced when establishing an H2 client connection.
 #[derive(Debug)]
@@ -91,10 +90,10 @@ where
     type Response = Response<RecvBody>;
     type Error = super::Error;
     type InitError = ConnectError<C::Error>;
-    type Service = Service<C, E, S>;
+    type Service = Connection<C, E, S>;
     type Future = ConnectFuture<C, E, S>;
 
-    /// Obtains a Service on a single plaintext h2 connection to a remote.
+    /// Obtains a Connection on a single plaintext h2 connection to a remote.
     fn new_service(&self) -> Self::Future {
         let client = self.builder.clone();
         let conn = self.connect.connect()
@@ -121,7 +120,7 @@ where
     E: Executor<Background<C, S>> + Clone,
     S: Body,
 {
-    type Item = Service<C, E, S>;
+    type Item = Connection<C, E, S>;
     type Error = ConnectError<C::Error>;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
@@ -133,7 +132,7 @@ where
         self.executor.execute(task).map_err(|_| ConnectError::Execute)?;
 
         // Create an instance of the service
-        let service = Service::new(client, self.executor.clone());
+        let service = Connection::new(client, self.executor.clone());
 
         Ok(Async::Ready(service))
     }
