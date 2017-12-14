@@ -44,7 +44,7 @@ fn main() {
     }
 
     let conn = Conn(addr, reactor.clone());
-    let h2 = Connect::<Conn, Handle, ()>::new(conn, Default::default(), reactor);
+    let h2 = Connect::new(conn, Default::default(), reactor);
 
     let done = h2.new_service()
         .map_err(|_| Reason::REFUSED_STREAM.into())
@@ -64,7 +64,7 @@ fn main() {
 /// Avoids overflowing max concurrent streams
 struct Serial {
     count: usize,
-    h2: tower_h2::client::Connection<Conn, Handle, ()>,
+    h2: tower_h2::client::Connection<TcpStream, Handle, ()>,
     pending: Option<Box<Future<Item = (), Error = tower_h2::client::Error>>>,
 }
 
