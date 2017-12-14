@@ -61,7 +61,7 @@ where S: Body,
       T: AsyncRead + AsyncWrite,
 {
     /// Builds Connection on an H2 client connection.
-    pub(super) fn new(client: Client<S::Data>, executor: E) -> Self {
+    pub fn new(client: Client<S::Data>, executor: E) -> Self {
         let _p = PhantomData;
 
         Connection {
