@@ -1,13 +1,12 @@
 use {Body, RecvBody};
-use super::{Connection, Background};
+use super::{Connection, Background, Handshake, HandshakeError};
 
-use futures::{Future, Async, Poll};
+use futures::{Future, Poll};
 use futures::future::Executor;
 use h2;
 use http::{Request, Response};
 use tokio_connect;
 
-use std::boxed::Box;
 use std::marker::PhantomData;
 
 /// Establishes an H2 client connection.
@@ -18,7 +17,7 @@ pub struct Connect<C, E, S> {
     /// Establish new session layer values (usually TCP sockets w/ TLS).
     inner: C,
 
-    /// H2 client configuration
+    /// HTTP/2.0 client configuration
     builder: h2::client::Builder,
 
     /// Used to spawn connection management tasks and tasks to flush send
@@ -31,16 +30,30 @@ pub struct Connect<C, E, S> {
 
 /// Completes with a Connection when the H2 connection has been initialized.
 pub struct ConnectFuture<C, E, S>
-where C: tokio_connect::Connect + 'static,
-      S: Body + 'static,
+where C: tokio_connect::Connect,
+      S: Body,
 {
-    future: Box<Future<Item = Connected<S::Data, C::Connected>, Error = ConnectError<C::Error>>>,
-    executor: E,
-    _p: PhantomData<S>,
+    /// Connect state. Starts in "Connect", which attempts to obtain the `io`
+    /// handle from the `tokio_connect::Connect` instance. Then, with the
+    /// handle, performs the HTTP/2.0 handshake.
+    state: State<C, E, S>,
+
+    /// The executor that the `Connection` will use to spawn request body stream
+    /// flushing tasks
+    executor: Option<E>,
+
+    /// HTTP/2.0 client configuration
+    builder: h2::client::Builder,
 }
 
-/// The type yielded by an h2 client handshake future
-type Connected<S, C> = (h2::client::Client<S>, h2::client::Connection<C, S>);
+/// Represents the state of a `ConnectFuture`
+enum State<C, E, S>
+where C: tokio_connect::Connect,
+      S: Body,
+{
+    Connect(C::Future),
+    Handshake(Handshake<C::Connected, E, S>),
+}
 
 /// Error produced when establishing an H2 client connection.
 #[derive(Debug)]
@@ -49,11 +62,8 @@ pub enum ConnectError<T> {
     /// layer.
     Connect(T),
 
-    /// An error occurred when attempting to perform the HTTP/2.0 handshake.
-    Proto(h2::Error),
-
-    /// An error occured when attempting to execute a worker task
-    Execute,
+    /// An error occurred while performing the HTTP/2.0 handshake.
+    Handshake(HandshakeError),
 }
 
 // ===== impl Connect =====
@@ -95,19 +105,13 @@ where
 
     /// Obtains a Connection on a single plaintext h2 connection to a remote.
     fn new_service(&self) -> Self::Future {
-        let client = self.builder.clone();
-        let conn = self.inner.connect()
-            .map_err(ConnectError::Connect)
-            .and_then(move |io| {
-                client
-                    .handshake(io)
-                    .map_err(ConnectError::Proto)
-            });
+        let state = State::Connect(self.inner.connect());
+        let builder = self.builder.clone();
 
         ConnectFuture {
-            future: Box::new(conn),
-            executor: self.executor.clone(),
-            _p: PhantomData,
+            state,
+            builder,
+            executor: Some(self.executor.clone()),
         }
     }
 }
@@ -124,16 +128,24 @@ where
     type Error = ConnectError<C::Error>;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        // Get the session layer instance
-        let (client, connection) = try_ready!(self.future.poll());
+        loop {
+            let io = match self.state {
+                State::Connect(ref mut fut) => {
+                    let res = fut.poll()
+                        .map_err(ConnectError::Connect);
 
-        // Spawn the worker task
-        let task = Background::connection(connection);
-        self.executor.execute(task).map_err(|_| ConnectError::Execute)?;
+                    try_ready!(res)
+                }
+                State::Handshake(ref mut fut) => {
+                    return fut.poll()
+                        .map_err(ConnectError::Handshake);
+                }
+            };
 
-        // Create an instance of the service
-        let service = Connection::new(client, self.executor.clone());
+            let executor = self.executor.take().expect("double poll");
+            let handshake = Handshake::new(io, executor, &self.builder);
 
-        Ok(Async::Ready(service))
+            self.state = State::Handshake(handshake);
+        }
     }
 }

@@ -3,10 +3,10 @@ use super::Background;
 use flush::Flush;
 
 use bytes::IntoBuf;
-use futures::{Future, Poll};
+use futures::{Future, Poll, Async};
 use futures::future::Executor;
 use h2;
-use h2::client::{self, Client};
+use h2::client::{self, Client, Builder};
 use http::{self, Request, Response};
 use tower::Service;
 use tokio_io::{AsyncRead, AsyncWrite};
@@ -20,6 +20,14 @@ where S: Body,
     client: Client<S::Data>,
     executor: E,
     _p: PhantomData<(T, S)>,
+}
+
+/// In progress HTTP/2.0 client handshake.
+pub struct Handshake<T, E, S>
+where S: Body,
+{
+    inner: h2::client::Handshake<T, S::Data>,
+    executor: E,
 }
 
 /// Drives the sending of a request (and its body) until a response is received (i.e. the
@@ -46,6 +54,16 @@ pub struct Error {
     kind: Kind,
 }
 
+/// Error produced when performing an HTTP/2.0 handshake.
+#[derive(Debug)]
+pub enum HandshakeError {
+    /// An error occurred when attempting to perform the HTTP/2.0 handshake.
+    Proto(h2::Error),
+
+    /// An error occured when attempting to execute a worker task
+    Execute,
+}
+
 #[derive(Debug)]
 enum Kind {
     Inner(h2::Error),
@@ -69,6 +87,11 @@ where S: Body,
             executor,
             _p,
         }
+    }
+
+    /// Perform the HTTP/2.0 handshake, yielding a `Connection` on completion.
+    pub fn handshake(io: T, executor: E) -> Handshake<T, E, S> {
+        Handshake::new(io, executor, &Builder::default())
     }
 }
 
@@ -164,6 +187,46 @@ impl Future for ResponseFuture {
     }
 }
 
+// ===== impl Handshake =====
+
+impl<T, E, S> Handshake<T, E, S>
+where T: AsyncRead + AsyncWrite,
+      S: Body,
+{
+    /// Start an HTTP/2.0 handshake with the provided builder
+    pub fn new(io: T, executor: E, builder: &Builder) -> Self {
+        let inner = builder.handshake(io);
+
+        Handshake {
+            inner,
+            executor,
+        }
+    }
+}
+
+impl<T, E, S> Future for Handshake<T, E, S>
+where T: AsyncRead + AsyncWrite,
+      E: Executor<Background<T, S>> + Clone,
+      S: Body,
+{
+    type Item = Connection<T, E, S>;
+    type Error = HandshakeError;
+
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        let (client, connection) = try_ready!(self.inner.poll());
+
+        // Spawn the worker task
+        let task = Background::connection(connection);
+        self.executor.execute(task)
+            .map_err(|_| HandshakeError::Execute)?;
+
+        // Create an instance of the service
+        let service = Connection::new(client, self.executor.clone());
+
+        Ok(Async::Ready(service))
+    }
+}
+
 // ===== impl Error =====
 
 impl Error {
@@ -184,5 +247,13 @@ impl From<h2::Error> for Error {
 impl From<h2::Reason> for Error {
     fn from(src: h2::Reason) -> Self {
         h2::Error::from(src).into()
+    }
+}
+
+// ===== impl HandshakeError =====
+
+impl From<h2::Error> for HandshakeError {
+    fn from(src: h2::Error) -> Self {
+        HandshakeError::Proto(src)
     }
 }
