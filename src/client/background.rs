@@ -3,37 +3,31 @@ use flush::Flush;
 
 use futures::{Future, Poll};
 use h2::client::Connection;
-use tokio_connect::Connect;
+use tokio_io::{AsyncRead, AsyncWrite};
 
 /// Task that performs background tasks for a client.
 ///
 /// This is not used directly by a user of this library.
-pub struct Background<C, S>
-where C: Connect,
-      S: Body,
+pub struct Background<T, S>
+where S: Body,
 {
-    task: Task<C, S>,
+    task: Task<T, S>,
 }
 
 /// The specific task to execute
-enum Task<C, S>
-where C: Connect,
-      S: Body,
+enum Task<T, S>
+where S: Body,
 {
-    Connection(Connection<C::Connected, S::Data>),
+    Connection(Connection<T, S::Data>),
     Flush(Flush<S>),
 }
 
 // ===== impl Background =====
 
-impl<C, S> Background<C, S>
-where C: Connect,
-      S: Body,
+impl<T, S> Background<T, S>
+where S: Body,
 {
-    pub(crate) fn connection(
-        connection: Connection<C::Connected, S::Data>)
-        -> Self
-    {
+    pub(crate) fn connection(connection: Connection<T, S::Data>) -> Self {
         let task = Task::Connection(connection);
         Background { task }
     }
@@ -44,8 +38,8 @@ where C: Connect,
     }
 }
 
-impl<C, S> Future for Background<C, S>
-where C: Connect,
+impl<T, S> Future for Background<T, S>
+where T: AsyncRead + AsyncWrite,
       S: Body,
 {
     type Item = ();

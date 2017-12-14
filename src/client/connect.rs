@@ -61,7 +61,7 @@ pub enum ConnectError<T> {
 impl<C, E, S> Connect<C, E, S>
 where
     C: tokio_connect::Connect,
-    E: Executor<Background<C, S>> + Clone,
+    E: Executor<Background<C::Connected, S>> + Clone,
     S: Body,
 {
     /// Create a new `Connect`.
@@ -83,14 +83,14 @@ where
 impl<C, E, S> ::tower::NewService for Connect<C, E, S>
 where
     C: tokio_connect::Connect + 'static,
-    E: Executor<Background<C, S>> + Clone,
+    E: Executor<Background<C::Connected, S>> + Clone,
     S: Body + 'static,
 {
     type Request = Request<S>;
     type Response = Response<RecvBody>;
     type Error = super::Error;
     type InitError = ConnectError<C::Error>;
-    type Service = Connection<C, E, S>;
+    type Service = Connection<C::Connected, E, S>;
     type Future = ConnectFuture<C, E, S>;
 
     /// Obtains a Connection on a single plaintext h2 connection to a remote.
@@ -117,10 +117,10 @@ where
 impl<C, E, S> Future for ConnectFuture<C, E, S>
 where
     C: tokio_connect::Connect,
-    E: Executor<Background<C, S>> + Clone,
+    E: Executor<Background<C::Connected, S>> + Clone,
     S: Body,
 {
-    type Item = Connection<C, E, S>;
+    type Item = Connection<C::Connected, E, S>;
     type Error = ConnectError<C::Error>;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {

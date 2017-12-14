@@ -8,18 +8,18 @@ use futures::future::Executor;
 use h2;
 use h2::client::{self, Client};
 use http::{self, Request, Response};
-use tokio_connect::Connect;
 use tower::Service;
+use tokio_io::{AsyncRead, AsyncWrite};
 
 use std::marker::PhantomData;
 
 /// Exposes a request/response API on an h2 client connection..
-pub struct Connection<C, E, S>
+pub struct Connection<T, E, S>
 where S: Body,
 {
     client: Client<S::Data>,
     executor: E,
-    _p: PhantomData<(C, S)>,
+    _p: PhantomData<(T, S)>,
 }
 
 /// Drives the sending of a request (and its body) until a response is received (i.e. the
@@ -54,11 +54,11 @@ enum Kind {
 
 // ===== impl Connection =====
 
-impl<C, E, S> Connection<C, E, S>
+impl<T, E, S> Connection<T, E, S>
 where S: Body,
       S::Data: IntoBuf + 'static,
-      C: Connect,
-      E: Executor<Background<C, S>>,
+      E: Executor<Background<T, S>>,
+      T: AsyncRead + AsyncWrite,
 {
     /// Builds Connection on an H2 client connection.
     pub(super) fn new(client: Client<S::Data>, executor: E) -> Self {
@@ -72,24 +72,7 @@ where S: Body,
     }
 }
 
-impl<C, E, S> Connection<C, E, S>
-where S: Body,
-      S::Data: IntoBuf + 'static,
-      C: Connect,
-      E: Executor<Background<C, S>> + Clone,
-{
-    pub fn clone_handle<S2>(&self) -> Connection<C, E, S2>
-    where S2: Body<Data=S::Data>,
-    {
-        Connection {
-            client: self.client.clone(),
-            executor: self.executor.clone(),
-            _p: PhantomData,
-        }
-    }
-}
-
-impl<C, E, S> Clone for Connection<C, E, S>
+impl<T, E, S> Clone for Connection<T, E, S>
 where S: Body,
       E: Clone,
 {
@@ -102,11 +85,11 @@ where S: Body,
     }
 }
 
-impl<C, E, S> Service for Connection<C, E, S>
+impl<T, E, S> Service for Connection<T, E, S>
 where S: Body + 'static,
       S::Data: IntoBuf + 'static,
-      C: Connect,
-      E: Executor<Background<C, S>>,
+      E: Executor<Background<T, S>>,
+      T: AsyncRead + AsyncWrite,
 {
     type Request = Request<S>;
     type Response = Response<RecvBody>;
