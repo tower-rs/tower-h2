@@ -47,8 +47,7 @@ impl Body for RspBody {
     }
 }
 
-//const ROOT: &'static str = "/";
-const ROOT: &'static str = "/helloworld.Greeter/SayHello";
+const ROOT: &'static str = "/";
 
 #[derive(Debug)]
 struct Svc;
