@@ -6,7 +6,7 @@ use bytes::IntoBuf;
 use futures::{Future, Poll, Async};
 use futures::future::Executor;
 use h2;
-use h2::client::{self, Client, Builder};
+use h2::client::{self, SendRequest, Builder};
 use http::{self, Request, Response};
 use tower::Service;
 use tokio_io::{AsyncRead, AsyncWrite};
@@ -17,7 +17,7 @@ use std::marker::PhantomData;
 pub struct Connection<T, E, S>
 where S: Body,
 {
-    client: Client<S::Data>,
+    client: SendRequest<S::Data>,
     executor: E,
     _p: PhantomData<(T, S)>,
 }
@@ -79,7 +79,7 @@ where S: Body,
       T: AsyncRead + AsyncWrite,
 {
     /// Builds Connection on an H2 client connection.
-    pub fn new(client: Client<S::Data>, executor: E) -> Self {
+    pub fn new(client: SendRequest<S::Data>, executor: E) -> Self {
         let _p = PhantomData;
 
         Connection {
