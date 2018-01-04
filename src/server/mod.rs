@@ -8,6 +8,10 @@ use http::{self, Request, Response};
 use tokio_io::{AsyncRead, AsyncWrite};
 use tower::{NewService, Service};
 
+use std::fmt;
+// XXX: alternatively, we could rename the `Error` struct in this module to 
+//      avoid renaming this import.
+use std::error::Error as StdError;
 use std::marker::PhantomData;
 
 /// Attaches service implementations to h2 connections.
@@ -338,4 +342,50 @@ where S: NewService,
             Either::B(err) => Error::NewService(err),
         }
     }
+}
+
+impl<S> fmt::Display for Error<S>
+where 
+    Error<S>: StdError,
+    S: NewService,
+    S: fmt::Debug,
+    S::InitError: StdError,
+    S::Error: StdError,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(ref cause) = self.cause() {
+            write!(f, "{}: {}", self.description(), cause)
+        } else {
+            write!(f, "{}", self.description())
+        }
+    }
+}
+
+impl<S> StdError for Error<S>
+where 
+    S: NewService,
+    S: fmt::Debug,
+    S::InitError: StdError,
+    S::Error: StdError,
+{
+    fn cause(&self) -> Option<&StdError> {
+        match *self {
+            Error::Handshake(ref why) => Some(why),
+            Error::Protocol(ref why) => Some(why),
+            Error::NewService(ref why) => Some(why),
+            Error::Service(ref why) => Some(why),
+            Error::Execute => None,
+        }
+    }
+
+    fn description(&self) -> &str {
+        match *self {
+            Error::Handshake(_) =>  "error occurred during HTTP/2.0 handshake",
+            Error::Protocol(_) => "error produced by HTTP/2.0 stream",
+            Error::NewService(_) => "error occured while obtaining service",
+            Error::Service(_) => "error returned by service",
+            Error::Execute => "error occurred while attempting to spawn a task",
+        }
+    }
+
 }
