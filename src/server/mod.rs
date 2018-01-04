@@ -3,7 +3,7 @@ use {flush, Body, RecvBody};
 use futures::{Future, Poll, Stream};
 use futures::future::{Executor, Either, Join, MapErr};
 use h2::{self, Reason};
-use h2::server::{Server as Accept, Handshake, Respond};
+use h2::server::{Connection as Accept, Handshake, SendResponse};
 use http::{self, Request, Response};
 use tokio_io::{AsyncRead, AsyncWrite};
 use tower::{NewService, Service};
@@ -74,7 +74,7 @@ enum BackgroundState<T, B>
 where B: Body,
 {
     Respond {
-        respond: Respond<B::Data>,
+        respond: SendResponse<B::Data>,
         response: T,
     },
     Flush(flush::Flush<B>),
@@ -264,7 +264,7 @@ impl<T, B> Background<T, B>
 where T: Future,
       B: Body,
 {
-    fn new(respond: Respond<B::Data>, response: T) -> Self {
+    fn new(respond: SendResponse<B::Data>, response: T) -> Self {
         Background {
             state: BackgroundState::Respond {
                 respond,
