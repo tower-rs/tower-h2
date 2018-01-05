@@ -353,10 +353,17 @@ where
     S::Error: StdError,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if let Some(ref cause) = self.cause() {
-            write!(f, "{}: {}", self.description(), cause)
-        } else {
-            write!(f, "{}", self.description())
+        match *self {
+            Error::Handshake(ref why) => 
+                write!(f, "Error occurred during HTTP/2.0 handshake: {}", why),
+            Error::Protocol(ref why) => 
+                write!(f, "Error produced by HTTP/2.0 stream: {}", why),
+            Error::NewService(ref why) =>
+                write!(f, "Error occurred while obtaining service: {}", why),
+            Error::Service(ref why) =>
+                write!(f, "Error returned by service: {}", why),
+            Error::Execute => 
+                write!(f, "Error occurred while attempting to spawn a task"),
         }
     }
 }

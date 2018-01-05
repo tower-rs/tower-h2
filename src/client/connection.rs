@@ -255,9 +255,9 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.kind {
             Kind::Inner(ref h2) => 
-                write!(f, "error caused by underlying HTTP/2 error: {}", h2),
+                write!(f, "Error caused by underlying HTTP/2 error: {}", h2),
             Kind::Spawn => 
-                write!(f, "error spawning background task"),
+                write!(f, "Error spawning background task"),
         }
     }
 }

@@ -154,9 +154,21 @@ where
 
 // ===== impl ConnectError =====
 
-impl<T> fmt::Display for ConnectError<T> where T: Error {
+impl<T> fmt::Display for ConnectError<T> 
+where 
+    T: Error 
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}: {:?}", self.description(), self.cause())
+        match *self {
+            ConnectError::Connect(ref why) => write!(f, 
+                "Error attempting to establish underlying session layer: {}",
+                why
+            ),
+            ConnectError::Handshake(ref why) =>  write!(f, 
+                "Error while performing HTTP/2.0 handshake: {}",
+                why,
+            ),
+        }
     }
 }
 
@@ -167,9 +179,9 @@ where
     fn description(&self) -> &str {
         match *self {
             ConnectError::Connect(_) => 
-                "Error while attempting to establish underlying session layer",
+                "error attempting to establish underlying session layer",
             ConnectError::Handshake(_) => 
-                "Error while performing HTTP/2.0 handshake"
+                "error performing HTTP/2.0 handshake"
         }
     }
 
