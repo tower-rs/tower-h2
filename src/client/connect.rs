@@ -7,6 +7,8 @@ use h2;
 use http::{Request, Response};
 use tokio_connect;
 
+use std::error::Error;
+use std::fmt;
 use std::marker::PhantomData;
 
 /// Establishes an H2 client connection.
@@ -146,6 +148,47 @@ where
             let handshake = Handshake::new(io, executor, &self.builder);
 
             self.state = State::Handshake(handshake);
+        }
+    }
+}
+
+// ===== impl ConnectError =====
+
+impl<T> fmt::Display for ConnectError<T> 
+where 
+    T: Error 
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ConnectError::Connect(ref why) => write!(f, 
+                "Error attempting to establish underlying session layer: {}",
+                why
+            ),
+            ConnectError::Handshake(ref why) =>  write!(f, 
+                "Error while performing HTTP/2.0 handshake: {}",
+                why,
+            ),
+        }
+    }
+}
+
+impl<T> Error for ConnectError<T>
+where
+    T: Error,
+{
+    fn description(&self) -> &str {
+        match *self {
+            ConnectError::Connect(_) => 
+                "error attempting to establish underlying session layer",
+            ConnectError::Handshake(_) => 
+                "error performing HTTP/2.0 handshake"
+        }
+    }
+
+    fn cause(&self) -> Option<&Error> {
+        match *self {
+            ConnectError::Connect(ref why) => Some(why),
+            ConnectError::Handshake(ref why) => Some(why),
         }
     }
 }

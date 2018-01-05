@@ -11,6 +11,7 @@ use http::{self, Request, Response};
 use tower::Service;
 use tokio_io::{AsyncRead, AsyncWrite};
 
+use std::{error, fmt};
 use std::marker::PhantomData;
 
 /// Exposes a request/response API on an h2 client connection..
@@ -250,10 +251,75 @@ impl From<h2::Reason> for Error {
     }
 }
 
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.kind {
+            Kind::Inner(ref h2) => 
+                write!(f, "Error caused by underlying HTTP/2 error: {}", h2),
+            Kind::Spawn => 
+                write!(f, "Error spawning background task"),
+        }
+    }
+}
+
+impl error::Error for Error {
+    fn cause(&self) -> Option<&error::Error> {
+        if let Kind::Inner(ref h2) = self.kind {
+            Some(h2)
+        } else {
+            None
+        }
+    }
+
+    fn description(&self) -> &str {
+        match self.kind {
+            Kind::Inner(ref h2) => h2.description(),
+            Kind::Spawn => "error spawning worker task"
+        }
+    }
+
+}
+
 // ===== impl HandshakeError =====
 
 impl From<h2::Error> for HandshakeError {
     fn from(src: h2::Error) -> Self {
         HandshakeError::Proto(src)
     }
+}
+
+impl fmt::Display for HandshakeError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            HandshakeError::Proto(ref h2) =>
+                write!(f, 
+                    "An error occurred while attempting to perform the HTTP/2 \
+                    handshake: {}", 
+                    h2),
+            HandshakeError::Execute =>
+                write!(f, 
+                    "An error occurred while attempting to execute a worker \
+                     task."),
+        }
+    }
+}
+
+impl error::Error for HandshakeError {
+    fn cause(&self) -> Option<&error::Error> {
+        if let HandshakeError::Proto(ref h2) = *self {
+            Some(h2)
+        } else {
+            None
+        }
+    }
+
+    fn description(&self) -> &str {
+        match *self {
+            HandshakeError::Proto(_) =>
+                "error attempting to perform HTTP/2 handshake",
+            HandshakeError::Execute =>
+                "error attempting to execute a worker task",
+        }
+    }
+
 }

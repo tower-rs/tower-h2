@@ -8,6 +8,7 @@ use http::{self, Request, Response};
 use tokio_io::{AsyncRead, AsyncWrite};
 use tower::{NewService, Service};
 
+use std::{error, fmt};
 use std::marker::PhantomData;
 
 /// Attaches service implementations to h2 connections.
@@ -338,4 +339,57 @@ where S: NewService,
             Either::B(err) => Error::NewService(err),
         }
     }
+}
+
+impl<S> fmt::Display for Error<S>
+where 
+    Error<S>: error::Error,
+    S: NewService,
+    S: fmt::Debug,
+    S::InitError: error::Error,
+    S::Error: error::Error,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Error::Handshake(ref why) => 
+                write!(f, "Error occurred during HTTP/2.0 handshake: {}", why),
+            Error::Protocol(ref why) => 
+                write!(f, "Error produced by HTTP/2.0 stream: {}", why),
+            Error::NewService(ref why) =>
+                write!(f, "Error occurred while obtaining service: {}", why),
+            Error::Service(ref why) =>
+                write!(f, "Error returned by service: {}", why),
+            Error::Execute => 
+                write!(f, "Error occurred while attempting to spawn a task"),
+        }
+    }
+}
+
+impl<S> error::Error for Error<S>
+where 
+    S: NewService,
+    S: fmt::Debug,
+    S::InitError: error::Error,
+    S::Error: error::Error,
+{
+    fn cause(&self) -> Option<&error::Error> {
+        match *self {
+            Error::Handshake(ref why) => Some(why),
+            Error::Protocol(ref why) => Some(why),
+            Error::NewService(ref why) => Some(why),
+            Error::Service(ref why) => Some(why),
+            Error::Execute => None,
+        }
+    }
+
+    fn description(&self) -> &str {
+        match *self {
+            Error::Handshake(_) =>  "error occurred during HTTP/2.0 handshake",
+            Error::Protocol(_) => "error produced by HTTP/2.0 stream",
+            Error::NewService(_) => "error occured while obtaining service",
+            Error::Service(_) => "error returned by service",
+            Error::Execute => "error occurred while attempting to spawn a task",
+        }
+    }
+
 }
