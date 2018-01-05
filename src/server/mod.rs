@@ -8,10 +8,7 @@ use http::{self, Request, Response};
 use tokio_io::{AsyncRead, AsyncWrite};
 use tower::{NewService, Service};
 
-use std::fmt;
-// XXX: alternatively, we could rename the `Error` struct in this module to 
-//      avoid renaming this import.
-use std::error::Error as StdError;
+use std::{error, fmt};
 use std::marker::PhantomData;
 
 /// Attaches service implementations to h2 connections.
@@ -346,11 +343,11 @@ where S: NewService,
 
 impl<S> fmt::Display for Error<S>
 where 
-    Error<S>: StdError,
+    Error<S>: error::Error,
     S: NewService,
     S: fmt::Debug,
-    S::InitError: StdError,
-    S::Error: StdError,
+    S::InitError: error::Error,
+    S::Error: error::Error,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
@@ -368,14 +365,14 @@ where
     }
 }
 
-impl<S> StdError for Error<S>
+impl<S> error::Error for Error<S>
 where 
     S: NewService,
     S: fmt::Debug,
-    S::InitError: StdError,
-    S::Error: StdError,
+    S::InitError: error::Error,
+    S::Error: error::Error,
 {
-    fn cause(&self) -> Option<&StdError> {
+    fn cause(&self) -> Option<&error::Error> {
         match *self {
             Error::Handshake(ref why) => Some(why),
             Error::Protocol(ref why) => Some(why),
