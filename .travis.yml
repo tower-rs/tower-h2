@@ -1,3 +1,4 @@
+---
 language: rust
 sudo: false
 
@@ -5,13 +6,30 @@ cache: cargo
 
 matrix:
   include:
-    - rust: stable
-    - rust: beta
+  - rust: nightly
+  - rust: stable
+    before_deploy: cargo doc --no-deps
+  allow_failures:
     - rust: nightly
 
 script:
   - cargo test
 
+deploy:
+  provider:  pages
+  skip_cleanup: true
+  github_token: $GH_TOKEN
+  target_branch: gh-pages
+  local_dir: target/doc
+  on:
+    branch: master
+    repo: tower-rs/tower-grpc
+    rust: stable
+
+env:
+  global:
+    secure: X1u22OmEgeA9Yapt2IEdYAKAFID7dGM7RwPqLDJUWPdsecJfrfs8Je4ZkKF5b83/XYPMzG+8TctsFxgfEbSu3/zi4biK0Ns1veswvI0cUZmlNRvxIbZ7XJEW/9q9Yqc4Y2ASYiJ51Py5GCF0mxLJjwrFeEHZwEgPtsJl+5m0eMfjkx5X0IS6RYsJvKnjiQcKXMzu0KksGkG0ad4LboFb1iQO0RsOvlK7hFKqmypyhWRdZ3zykAu5pXSjijtRX7IQ9mxRJtiDb8wFBoLv90O7+PCoOaDt3h7XzU7aKZnKaobvcV7jLOrg7pq+S3NnzeCnWrbJlGWvh8AY4WJ0dyoBsQmF2KqUDHIQ07vpm1EaP2SONw3aQWWEo0v09TzN5C0IaUEYOABpqBvP/O8X3grNvvFb5RqueUgYWk+MANlLz3IzMZd3ycUdmcsfB3GfPPjmcRUvssCVF3/C2wf6Rypzc8PblTFKPgyut9s8/PM9zPEWumPw0RkI70gaROlVzE2DOr/eZvYzH7B1wztoP6wRUhTctAKbm6k52edhhIEX75lPBhEm0kdiJ3XtA9ofwnib+GmVUnQzjsAsxP76U8mB+RaRSiTTF40Z3sZg1ii9Z/XzpbZCdZjxCePyrY/Tl3zdlVrxA8wEVjuq+cdHVC/XYOhS6658wBbETrFo5JVhexo=
+
 notifications:
   email:
-on_success: never
+    on_success: never
