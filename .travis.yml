@@ -23,7 +23,7 @@ deploy:
   local_dir: target/doc
   on:
     branch: master
-    repo: tower-rs/tower-grpc
+    repo: tower-rs/tower-h2
     rust: stable
 
 env:
