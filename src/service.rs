@@ -37,6 +37,11 @@ pub trait HttpService: ::sealed::Sealed {
     fn lift(self) -> LiftService<Self> where Self: Sized {
         LiftService { inner: self }
     }
+
+    /// Same as `lift` but operates on an HttpService reference.
+    fn lift_ref(&mut self) -> LiftServiceRef<Self> where Self: Sized {
+        LiftServiceRef { inner: self }
+    }
 }
 
 /// Wraps an `HttpService` instance, implementing `tower::Service`.
@@ -46,6 +51,15 @@ pub trait HttpService: ::sealed::Sealed {
 /// [`lift`]: #
 pub struct LiftService<T> {
     inner: T,
+}
+
+/// Wraps an `HttpService` reference, implementing `tower::Service`.
+///
+/// See [`lift`] function documentation for more details.
+///
+/// [`lift`]: #
+pub struct LiftServiceRef<'a, T: 'a> {
+    inner: &'a mut T,
 }
 
 impl<T, B1, B2> HttpService for T
@@ -76,6 +90,21 @@ where T: Service<Request = Request<B1>,
 {}
 
 impl<T: HttpService> Service for LiftService<T> {
+    type Request = Request<T::RequestBody>;
+    type Response = Response<T::ResponseBody>;
+    type Error = T::Error;
+    type Future = T::Future;
+
+    fn poll_ready(&mut self) -> Poll<(), Self::Error> {
+        self.inner.poll_ready()
+    }
+
+    fn call(&mut self, request: Self::Request) -> Self::Future {
+        self.inner.call(request)
+    }
+}
+
+impl<'a, T: HttpService> Service for LiftServiceRef<'a, T> {
     type Request = Request<T::RequestBody>;
     type Response = Response<T::ResponseBody>;
     type Error = T::Error;
