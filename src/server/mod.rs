@@ -12,7 +12,6 @@ use std::{error, fmt};
 use std::marker::PhantomData;
 
 /// Attaches service implementations to h2 connections.
-#[derive(Clone)]
 pub struct Server<S, E, B>
 where S: NewService,
       B: Body,
@@ -150,6 +149,23 @@ where S: NewService<Request = http::Request<RecvBody>, Response = Response<B>>,
             state: State::Init(handshake.join(service)),
             executor,
             modify,
+        }
+    }
+}
+
+// B doesn't need to be Clone, it's just a marker type.
+impl<S, E, B> Clone for Server<S, E, B>
+where
+    S: NewService + Clone,
+    E: Clone,
+    B: Body,
+{
+    fn clone(&self) -> Self {
+        Server {
+            new_service: self.new_service.clone(),
+            executor: self.executor.clone(),
+            builder: self.builder.clone(),
+            _p: PhantomData,
         }
     }
 }
@@ -342,7 +358,7 @@ where S: NewService,
 }
 
 impl<S> fmt::Display for Error<S>
-where 
+where
     Error<S>: error::Error,
     S: NewService,
     S: fmt::Debug,
@@ -351,22 +367,22 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::Handshake(ref why) => 
+            Error::Handshake(ref why) =>
                 write!(f, "Error occurred during HTTP/2.0 handshake: {}", why),
-            Error::Protocol(ref why) => 
+            Error::Protocol(ref why) =>
                 write!(f, "Error produced by HTTP/2.0 stream: {}", why),
             Error::NewService(ref why) =>
                 write!(f, "Error occurred while obtaining service: {}", why),
             Error::Service(ref why) =>
                 write!(f, "Error returned by service: {}", why),
-            Error::Execute => 
+            Error::Execute =>
                 write!(f, "Error occurred while attempting to spawn a task"),
         }
     }
 }
 
 impl<S> error::Error for Error<S>
-where 
+where
     S: NewService,
     S: fmt::Debug,
     S::InitError: error::Error,
