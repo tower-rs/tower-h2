@@ -1,5 +1,6 @@
 use {flush, Body, RecvBody};
 
+use bytes::IntoBuf;
 use futures::{Future, Poll, Stream};
 use futures::future::{Executor, Either, Join, MapErr};
 use h2::{self, Reason};
@@ -23,14 +24,21 @@ where S: NewService,
 }
 
 /// Drives connection-level I/O .
-pub struct Connection<T, S, E, B, F>
+pub struct Connection<T, S, E, B, M, F>
 where T: AsyncRead + AsyncWrite,
       S: NewService,
       B: Body,
 {
     state: State<T, S, B>,
     executor: E,
+    on_connect: M,
     modify: F,
+}
+
+/// Modifies a newly established connection.
+pub trait OnConnect<T: AsyncRead + AsyncWrite, D: IntoBuf> {
+    /// Modify a request before calling the service.
+    fn on_connect(&mut self, connection: &mut Accept<T, D>);
 }
 
 /// Modify a received request
@@ -124,14 +132,15 @@ where S: NewService<Request = http::Request<RecvBody>, Response = Response<B>>,
       E: Clone,
 {
     /// Produces a future that is satisfied once the h2 connection has been initialized.
-    pub fn serve<T>(&self, io: T) -> Connection<T, S, E, B, ()>
+    pub fn serve<T>(&self, io: T) -> Connection<T, S, E, B, (), ()>
     where T: AsyncRead + AsyncWrite,
     {
-        self.serve_modified(io, ())
+        self.serve_modified(io, (), ())
     }
 
-    pub fn serve_modified<T, F>(&self, io: T, modify: F) -> Connection<T, S, E, B, F>
+    pub fn serve_modified<T, O, F>(&self, io: T, on_connect: O, modify: F) -> Connection<T, S, E, B, O, F>
     where T: AsyncRead + AsyncWrite,
+          O: OnConnect<T, B::Data>,
           F: Modify,
     {
         // Clone a handle to the executor so that it can be moved into the
@@ -148,6 +157,7 @@ where S: NewService<Request = http::Request<RecvBody>, Response = Response<B>>,
         Connection {
             state: State::Init(handshake.join(service)),
             executor,
+            on_connect,
             modify,
         }
     }
@@ -172,10 +182,11 @@ where
 
 // ===== impl Connection =====
 
-impl<T, S, E, B, F> Connection<T, S, E, B, F>
+impl<T, S, E, B, O, F> Connection<T, S, E, B, O, F>
 where T: AsyncRead + AsyncWrite,
       S: NewService<Request = http::Request<RecvBody>, Response = Response<B>>,
       B: Body,
+      O: OnConnect<T, B::Data>,
 {
     fn is_ready(&self) -> bool {
         use self::State::*;
@@ -189,10 +200,11 @@ where T: AsyncRead + AsyncWrite,
     fn try_ready(&mut self) -> Poll<(), Error<S>> {
         use self::State::*;
 
-        let (connection, service) = match self.state {
+        let (mut connection, service) = match self.state {
             Init(ref mut join) => try_ready!(join.poll().map_err(Error::from_init)),
             _ => unreachable!(),
         };
+        self.on_connect.on_connect(&mut connection);
 
         self.state = Ready { connection, service };
 
@@ -200,11 +212,12 @@ where T: AsyncRead + AsyncWrite,
     }
 }
 
-impl<T, S, E, B, F> Future for Connection<T, S, E, B, F>
+impl<T, S, E, B, O, F> Future for Connection<T, S, E, B, O, F>
 where T: AsyncRead + AsyncWrite,
       S: NewService<Request = http::Request<RecvBody>, Response = Response<B>>,
       E: Executor<Background<<S::Service as Service>::Future, B>>,
       B: Body + 'static,
+      O: OnConnect<T, B::Data>,
       F: Modify,
 {
     type Item = ();
@@ -258,6 +271,23 @@ where T: AsyncRead + AsyncWrite,
             }
         }
     }
+}
+
+// ===== impl OnConnect =====
+
+impl<T, D, F> OnConnect<T, D> for F
+where
+    T: AsyncRead + AsyncWrite,
+    D: IntoBuf,
+    F: FnMut(&mut Accept<T, D>),
+{
+    fn on_connect(&mut self, connection: &mut Accept<T, D>) {
+        (*self)(connection);
+    }
+}
+
+impl<T: AsyncRead + AsyncWrite, D: IntoBuf> OnConnect<T, D> for () {
+    fn on_connect(&mut self, _: &mut Accept<T, D>) {}
 }
 
 // ===== impl Modify =====
@@ -407,5 +437,4 @@ where
             Error::Execute => "error occurred while attempting to spawn a task",
         }
     }
-
 }
