@@ -358,7 +358,6 @@ where T: AsyncRead + AsyncWrite,
     }
 }
 
-
 // ===== impl Modify =====
 
 impl<T> Modify for T
@@ -506,5 +505,5 @@ where
             Error::Execute => "error occurred while attempting to spawn a task",
         }
     }
-
 }
+
