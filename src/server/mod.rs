@@ -57,7 +57,7 @@ where T: AsyncRead + AsyncWrite,
     /// The service has closed, so poll until connection is closed.
     GoAway {
         connection: Accept<T, B::Data>,
-        error: S::Error,
+        error: Error<S>,
     },
 
     /// Everything is closed up.
@@ -227,6 +227,25 @@ where T: AsyncRead + AsyncWrite,
       B: Body + 'static,
       F: Modify,
 {
+    /// Start an HTTP2 graceful shutdown.
+    ///
+    /// The `Connection` must continue to be polled until shutdown completes.
+    pub fn graceful_shutdown(&mut self) {
+        match self.state {
+            State::Init(_) => {
+                // Never connected, just switch to Done...
+            },
+            State::Ready { ref mut connection, .. } => {
+                connection.graceful_shutdown();
+                return;
+            },
+            State::GoAway { .. } => return,
+            State::Done => return,
+        }
+
+        self.state = State::Done;
+    }
+
     fn poll_init(&mut self) -> Poll<(), Error<S>> {
         use self::State::*;
 
@@ -246,11 +265,25 @@ where T: AsyncRead + AsyncWrite,
                 // Make sure the service is ready
                 match service.poll_ready() {
                     Ok(Async::Ready(())) => (),
-                    Ok(Async::NotReady) => return Ok(Async::NotReady),
+                    Ok(Async::NotReady) => {
+                        // Just because the service isn't ready doesn't mean
+                        // we do nothing. We must keep polling the connection
+                        // regardless. However, since we don't want to accept
+                        // a request, we `poll_close` instead of `poll`.
+                        let next = connection.poll_close()
+                            .map_err(Error::Protocol);
+
+                        // If not ready, we'll get polled again.
+                        try_ready!(next);
+
+                        // If poll_close was ready, that means the connection
+                        // is closed. All done!
+                        return Ok(PollMain::Done.into());
+                    },
                     Err(err) => {
                         trace!("service closed");
                         // service is closed, transition to goaway state
-                        break err;
+                        break Error::Service(err);
                     }
                 }
 
@@ -277,7 +310,7 @@ where T: AsyncRead + AsyncWrite,
 
                 // Spawn a new task to process the response future
                 if let Err(_) = self.executor.execute(Background::new(respond, response)) {
-                    return Err(Error::Execute)
+                    break Error::Execute;
                 }
             }
             _ => unreachable!(),
@@ -287,8 +320,7 @@ where T: AsyncRead + AsyncWrite,
         // should transition to GOAWAY.
         match mem::replace(&mut self.state, State::Done) {
             State::Ready { mut connection, .. } => {
-                // this sends a GOAWAY, and starts a graceful shutdown.
-                connection.close_connection();
+                connection.abrupt_shutdown(Reason::INTERNAL_ERROR);
 
                 self.state = State::GoAway {
                     connection,
@@ -314,7 +346,7 @@ where T: AsyncRead + AsyncWrite,
         match mem::replace(&mut self.state, State::Done) {
             State::GoAway { error, .. } => {
                 trace!("goaway completed");
-                Err(Error::Service(error))
+                Err(error)
             },
             _ => unreachable!(),
         }
