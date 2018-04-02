@@ -321,11 +321,11 @@ where T: AsyncRead + AsyncWrite,
             _ => unreachable!(),
         };
 
-        // We only break out of the loop on a service error, which means we
+        // We only break out of the loop on an error, which means we
         // should transition to GOAWAY.
         match mem::replace(&mut self.state, State::Done) {
             State::Ready { mut connection, .. } => {
-                connection.abrupt_shutdown(Reason::INTERNAL_ERROR);
+                connection.graceful_shutdown();
 
                 self.state = State::GoAway {
                     connection,
