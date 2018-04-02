@@ -197,23 +197,9 @@ where T: AsyncRead + AsyncWrite,
     type Error = Error<S>;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        let ret = (|| loop {
-            match self.state {
-                State::Init(..) => try_ready!(self.poll_init()),
-                State::Ready { .. } => {
-                    match try_ready!(self.poll_main()) {
-                        PollMain::Again => continue,
-                        PollMain::Done => {
-                            self.state = State::Done;
-                            return Ok(().into());
-                        }
-                    }
-                },
-                State::GoAway { .. } => try_ready!(self.poll_goaway()),
-                State::Done => return Ok(().into()),
-            }
-        })();
-        ret.map_err(|e| {
+        // Code is in poll2 to make sure any Err returned
+        // transitions state to State::Done.
+        self.poll2().map_err(|e| {
             self.state = State::Done;
             e
         })
@@ -244,6 +230,25 @@ where T: AsyncRead + AsyncWrite,
         }
 
         self.state = State::Done;
+    }
+
+    fn poll2(&mut self) -> Poll<(), Error<S>> {
+        loop {
+            match self.state {
+                State::Init(..) => try_ready!(self.poll_init()),
+                State::Ready { .. } => {
+                    match try_ready!(self.poll_main()) {
+                        PollMain::Again => continue,
+                        PollMain::Done => {
+                            self.state = State::Done;
+                            return Ok(().into());
+                        }
+                    }
+                },
+                State::GoAway { .. } => try_ready!(self.poll_goaway()),
+                State::Done => return Ok(().into()),
+            }
+        }
     }
 
     fn poll_init(&mut self) -> Poll<(), Error<S>> {
