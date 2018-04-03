@@ -90,7 +90,6 @@ where B: Body,
 }
 
 /// Error produced by a `Connection`.
-#[derive(Debug)]
 pub enum Error<S>
 where S: NewService,
 {
@@ -455,13 +454,36 @@ where S: NewService,
     }
 }
 
+impl<S> fmt::Debug for Error<S>
+where
+    S: NewService,
+    S::InitError: fmt::Debug,
+    S::Error: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Error::Handshake(ref why) => f.debug_tuple("Handshake")
+                .field(why)
+                .finish(),
+            Error::Protocol(ref why) => f.debug_tuple("Protocol")
+                .field(why)
+                .finish(),
+            Error::NewService(ref why) => f.debug_tuple("NewService")
+                .field(why)
+                .finish(),
+            Error::Service(ref why) => f.debug_tuple("Service")
+                .field(why)
+                .finish(),
+            Error::Execute => f.debug_tuple("Execute").finish(),
+        }
+    }
+}
+
 impl<S> fmt::Display for Error<S>
 where
-    Error<S>: error::Error,
     S: NewService,
-    S: fmt::Debug,
-    S::InitError: error::Error,
-    S::Error: error::Error,
+    S::InitError: fmt::Display,
+    S::Error: fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
@@ -482,7 +504,6 @@ where
 impl<S> error::Error for Error<S>
 where
     S: NewService,
-    S: fmt::Debug,
     S::InitError: error::Error,
     S::Error: error::Error,
 {

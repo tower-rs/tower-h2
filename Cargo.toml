@@ -11,7 +11,7 @@ publish = false
 [dependencies]
 bytes = "0.4"
 futures = "0.1"
-h2 = { git = "https://github.com/carllerche/h2" } #"0.1"
+h2 = "0.1.4"
 http = "0.1"
 log = "0.4"
 tokio-core = "0.1"
