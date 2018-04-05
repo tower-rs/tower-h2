@@ -1,6 +1,6 @@
 use {flush, Body, RecvBody};
 
-use futures::{Future, Poll, Stream};
+use futures::{Async, Future, Poll, Stream};
 use futures::future::{Executor, Either, Join, MapErr};
 use h2::{self, Reason};
 use h2::server::{Connection as Accept, Handshake, SendResponse};
@@ -8,7 +8,7 @@ use http::{self, Request, Response};
 use tokio_io::{AsyncRead, AsyncWrite};
 use tower::{NewService, Service};
 
-use std::{error, fmt};
+use std::{error, fmt, mem};
 use std::marker::PhantomData;
 
 /// Attaches service implementations to h2 connections.
@@ -53,6 +53,15 @@ where T: AsyncRead + AsyncWrite,
         connection: Accept<T, B::Data>,
         service: S::Service,
     },
+
+    /// The service has closed, so poll until connection is closed.
+    GoAway {
+        connection: Accept<T, B::Data>,
+        error: Error<S>,
+    },
+
+    /// Everything is closed up.
+    Done,
 }
 
 type Init<T, B, S, E> =
@@ -81,7 +90,6 @@ where B: Body,
 }
 
 /// Error produced by a `Connection`.
-#[derive(Debug)]
 pub enum Error<S>
 where S: NewService,
 {
@@ -99,6 +107,11 @@ where S: NewService,
 
     /// Error produced when attempting to spawn a task
     Execute,
+}
+
+enum PollMain {
+    Again,
+    Done,
 }
 
 // ===== impl Server =====
@@ -172,34 +185,6 @@ where
 
 // ===== impl Connection =====
 
-impl<T, S, E, B, F> Connection<T, S, E, B, F>
-where T: AsyncRead + AsyncWrite,
-      S: NewService<Request = http::Request<RecvBody>, Response = Response<B>>,
-      B: Body,
-{
-    fn is_ready(&self) -> bool {
-        use self::State::*;
-
-        match self.state {
-            Ready { .. } => true,
-            _ => false,
-        }
-    }
-
-    fn try_ready(&mut self) -> Poll<(), Error<S>> {
-        use self::State::*;
-
-        let (connection, service) = match self.state {
-            Init(ref mut join) => try_ready!(join.poll().map_err(Error::from_init)),
-            _ => unreachable!(),
-        };
-
-        self.state = Ready { connection, service };
-
-        Ok(().into())
-    }
-}
-
 impl<T, S, E, B, F> Future for Connection<T, S, E, B, F>
 where T: AsyncRead + AsyncWrite,
       S: NewService<Request = http::Request<RecvBody>, Response = Response<B>>,
@@ -211,51 +196,163 @@ where T: AsyncRead + AsyncWrite,
     type Error = Error<S>;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        if !self.is_ready() {
-            // Advance the initialization of the service and HTTP/2.0 connection
-            try_ready!(self.try_ready());
+        // Code is in poll2 to make sure any Err returned
+        // transitions state to State::Done.
+        self.poll2().map_err(|e| {
+            self.state = State::Done;
+            e
+        })
+    }
+}
+
+impl<T, S, E, B, F> Connection<T, S, E, B, F>
+where T: AsyncRead + AsyncWrite,
+      S: NewService<Request = http::Request<RecvBody>, Response = Response<B>>,
+      E: Executor<Background<<S::Service as Service>::Future, B>>,
+      B: Body + 'static,
+      F: Modify,
+{
+    /// Start an HTTP2 graceful shutdown.
+    ///
+    /// The `Connection` must continue to be polled until shutdown completes.
+    pub fn graceful_shutdown(&mut self) {
+        match self.state {
+            State::Init(_) => {
+                // Never connected, just switch to Done...
+            },
+            State::Ready { ref mut connection, .. } => {
+                connection.graceful_shutdown();
+                return;
+            },
+            State::GoAway { .. } => return,
+            State::Done => return,
         }
 
+        self.state = State::Done;
+    }
+
+    fn poll2(&mut self) -> Poll<(), Error<S>> {
+        loop {
+            match self.state {
+                State::Init(..) => try_ready!(self.poll_init()),
+                State::Ready { .. } => {
+                    match try_ready!(self.poll_main()) {
+                        PollMain::Again => continue,
+                        PollMain::Done => {
+                            self.state = State::Done;
+                            return Ok(().into());
+                        }
+                    }
+                },
+                State::GoAway { .. } => try_ready!(self.poll_goaway()),
+                State::Done => return Ok(().into()),
+            }
+        }
+    }
+
+    fn poll_init(&mut self) -> Poll<(), Error<S>> {
+        use self::State::*;
+
         let (connection, service) = match self.state {
-            State::Ready { ref mut connection, ref mut service } => {
-                (connection, service)
+            Init(ref mut join) => try_ready!(join.poll().map_err(Error::from_init)),
+            _ => unreachable!(),
+        };
+
+        self.state = Ready { connection, service };
+
+        Ok(().into())
+    }
+
+    fn poll_main(&mut self) -> Poll<PollMain, Error<S>> {
+        let error = match self.state {
+            State::Ready { ref mut connection, ref mut service } => loop {
+                // Make sure the service is ready
+                match service.poll_ready() {
+                    Ok(Async::Ready(())) => (),
+                    Ok(Async::NotReady) => {
+                        // Just because the service isn't ready doesn't mean
+                        // we do nothing. We must keep polling the connection
+                        // regardless. However, since we don't want to accept
+                        // a request, we `poll_close` instead of `poll`.
+                        let next = connection.poll_close()
+                            .map_err(Error::Protocol);
+
+                        // If not ready, we'll get polled again.
+                        try_ready!(next);
+
+                        // If poll_close was ready, that means the connection
+                        // is closed. All done!
+                        return Ok(PollMain::Done.into());
+                    },
+                    Err(err) => {
+                        trace!("service closed");
+                        // service is closed, transition to goaway state
+                        break Error::Service(err);
+                    }
+                }
+
+                let next = connection.poll()
+                    .map_err(Error::Protocol);
+
+                let (request, respond) = match try_ready!(next) {
+                    Some(next) => next,
+                    None => return Ok(PollMain::Done.into()),
+                };
+
+                let (parts, body) = request.into_parts();
+
+                // This is really unfortunate, but the `http` currently lacks the
+                // APIs to do this better :(
+                let mut request = Request::from_parts(parts, ());
+                self.modify.modify(&mut request);
+
+                let (parts, _) = request.into_parts();
+                let request = Request::from_parts(parts, RecvBody::new(body));
+
+                // Dispatch the request to the service
+                let response = service.call(request);
+
+                // Spawn a new task to process the response future
+                if let Err(_) = self.executor.execute(Background::new(respond, response)) {
+                    break Error::Execute;
+                }
             }
             _ => unreachable!(),
         };
 
-        loop {
-            // Make sure the service is ready
-            let ready = service.poll_ready()
-                // TODO: Don't dump the error
-                .map_err(Error::Service);
+        // We only break out of the loop on an error, which means we
+        // should transition to GOAWAY.
+        match mem::replace(&mut self.state, State::Done) {
+            State::Ready { mut connection, .. } => {
+                connection.graceful_shutdown();
 
-            try_ready!(ready);
+                self.state = State::GoAway {
+                    connection,
+                    error,
+                };
 
-            let next = connection.poll()
-                .map_err(Error::Protocol);
+                Ok(Async::Ready(PollMain::Again))
+            },
+            _ => unreachable!(),
+        }
+    }
 
-            let (request, respond) = match try_ready!(next) {
-                Some(next) => next,
-                None => return Ok(().into()),
-            };
-
-            let (parts, body) = request.into_parts();
-
-            // This is really unfortunate, but the `http` currently lacks the
-            // APIs to do this better :(
-            let mut request = Request::from_parts(parts, ());
-            self.modify.modify(&mut request);
-
-            let (parts, _) = request.into_parts();
-            let request = Request::from_parts(parts, RecvBody::new(body));
-
-            // Dispatch the request to the service
-            let response = service.call(request);
-
-            // Spawn a new task to process the response future
-            if let Err(_) = self.executor.execute(Background::new(respond, response)) {
-                return Err(Error::Execute)
+    fn poll_goaway(&mut self) -> Poll<(), Error<S>> {
+        match self.state {
+            State::GoAway { ref mut connection, .. } => {
+                try_ready!(connection.poll_close().map_err(Error::Protocol));
             }
+            _ => unreachable!(),
+        }
+
+        // Once here, the connection has finished successfully. Time to just
+        // return the service error.
+        match mem::replace(&mut self.state, State::Done) {
+            State::GoAway { error, .. } => {
+                trace!("goaway completed");
+                Err(error)
+            },
+            _ => unreachable!(),
         }
     }
 }
@@ -357,13 +454,36 @@ where S: NewService,
     }
 }
 
+impl<S> fmt::Debug for Error<S>
+where
+    S: NewService,
+    S::InitError: fmt::Debug,
+    S::Error: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Error::Handshake(ref why) => f.debug_tuple("Handshake")
+                .field(why)
+                .finish(),
+            Error::Protocol(ref why) => f.debug_tuple("Protocol")
+                .field(why)
+                .finish(),
+            Error::NewService(ref why) => f.debug_tuple("NewService")
+                .field(why)
+                .finish(),
+            Error::Service(ref why) => f.debug_tuple("Service")
+                .field(why)
+                .finish(),
+            Error::Execute => f.debug_tuple("Execute").finish(),
+        }
+    }
+}
+
 impl<S> fmt::Display for Error<S>
 where
-    Error<S>: error::Error,
     S: NewService,
-    S: fmt::Debug,
-    S::InitError: error::Error,
-    S::Error: error::Error,
+    S::InitError: fmt::Display,
+    S::Error: fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
@@ -384,7 +504,6 @@ where
 impl<S> error::Error for Error<S>
 where
     S: NewService,
-    S: fmt::Debug,
     S::InitError: error::Error,
     S::Error: error::Error,
 {
@@ -407,5 +526,5 @@ where
             Error::Execute => "error occurred while attempting to spawn a task",
         }
     }
-
 }
+
