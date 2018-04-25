@@ -8,7 +8,7 @@ extern crate log;
 extern crate tokio_connect;
 extern crate tokio_core;
 extern crate tokio_io;
-extern crate tower;
+extern crate tower_service;
 
 pub mod client;
 pub mod server;

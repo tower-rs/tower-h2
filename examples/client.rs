@@ -6,8 +6,8 @@ extern crate http;
 extern crate string;
 extern crate tokio_connect;
 extern crate tokio_core;
-extern crate tower;
 extern crate tower_h2;
+extern crate tower_service;
 
 use futures::*;
 use bytes::Bytes;
@@ -16,9 +16,9 @@ use std::net::SocketAddr;
 use string::{String, TryFrom};
 use tokio_core::net::TcpStream;
 use tokio_core::reactor::{Core, Handle};
-use tower::{NewService, Service};
 use tower_h2::{Body, RecvBody};
 use tower_h2::client::Connect;
+use tower_service::{NewService, Service};
 use h2::Reason;
 
 pub struct Conn(SocketAddr, Handle);

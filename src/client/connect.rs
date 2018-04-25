@@ -1,6 +1,8 @@
 use {Body, RecvBody};
 use super::{Connection, Background, Handshake, HandshakeError};
 
+use tower_service::NewService;
+
 use futures::{Future, Poll};
 use futures::future::Executor;
 use h2;
@@ -92,7 +94,7 @@ where
     }
 }
 
-impl<C, E, S> ::tower::NewService for Connect<C, E, S>
+impl<C, E, S> NewService for Connect<C, E, S>
 where
     C: tokio_connect::Connect + 'static,
     E: Executor<Background<C::Connected, S>> + Clone,

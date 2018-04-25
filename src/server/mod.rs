@@ -1,12 +1,13 @@
 use {flush, Body, RecvBody};
 
+use tower_service::{NewService, Service};
+
 use futures::{Async, Future, Poll, Stream};
 use futures::future::{Executor, Either, Join, MapErr};
 use h2::{self, Reason};
 use h2::server::{Connection as Accept, Handshake, SendResponse};
 use http::{self, Request, Response};
 use tokio_io::{AsyncRead, AsyncWrite};
-use tower::{NewService, Service};
 
 use std::{error, fmt, mem};
 use std::marker::PhantomData;
