@@ -1,14 +1,15 @@
 use Body;
 
+use tower_service::Service;
+
 use http::{Request, Response};
 use futures::{Future, Poll};
-use tower::Service;
 
 /// An HTTP service
 ///
 /// This is not intended to be implemented directly. Instead, it is a trait
-/// alias of sorts. Implements the `tower::Service` trait using `http::Request`
-/// and `http::Response` types.
+/// alias of sorts. Implements the `tower_service::Service` trait using
+/// `http::Request` and `http::Response` types.
 pub trait HttpService: ::sealed::Sealed {
     /// Request payload.
     type RequestBody: Body;
@@ -28,7 +29,8 @@ pub trait HttpService: ::sealed::Sealed {
     /// Process the request and return the response asynchronously.
     fn call(&mut self, request: Request<Self::RequestBody>) -> Self::Future;
 
-    /// Wrap the HttpService so that it implements tower::Service directly.
+    /// Wrap the HttpService so that it implements tower_service::Service
+    /// directly.
     ///
     /// Since `HttpService` does not directly implement `Service`, if an
     /// `HttpService` instance needs to be used where a `T: Service` is
@@ -44,7 +46,7 @@ pub trait HttpService: ::sealed::Sealed {
     }
 }
 
-/// Wraps an `HttpService` instance, implementing `tower::Service`.
+/// Wraps an `HttpService` instance, implementing `tower_service::Service`.
 ///
 /// See [`lift`] function documentation for more details.
 ///
@@ -53,7 +55,7 @@ pub struct LiftService<T> {
     inner: T,
 }
 
-/// Wraps an `HttpService` reference, implementing `tower::Service`.
+/// Wraps an `HttpService` reference, implementing `tower_service::Service`.
 ///
 /// See [`lift`] function documentation for more details.
 ///

@@ -8,8 +8,8 @@ use futures::future::Executor;
 use h2;
 use h2::client::{self, SendRequest, Builder};
 use http::{self, Request, Response};
-use tower::Service;
 use tokio_io::{AsyncRead, AsyncWrite};
+use tower_service::Service;
 
 use std::{error, fmt};
 use std::marker::PhantomData;

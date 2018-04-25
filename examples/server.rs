@@ -6,16 +6,16 @@ extern crate http;
 #[macro_use]
 extern crate log;
 extern crate tokio_core;
-extern crate tower;
 extern crate tower_h2;
+extern crate tower_service;
 
 use bytes::Bytes;
 use futures::*;
 use http::Request;
 use tokio_core::net::TcpListener;
 use tokio_core::reactor::Core;
-use tower::{NewService, Service};
 use tower_h2::{Body, Server, RecvBody};
+use tower_service::{NewService, Service};
 
 type Response = http::Response<RspBody>;
 
