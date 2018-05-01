@@ -124,7 +124,101 @@ fn hello() {
 }
 
 #[test]
-fn respects_flow_control() {
+fn respects_flow_control_eos_signal() {
+    use futures::Poll;
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    let _ = ::env_logger::try_init();
+
+    struct Zeros {
+        buf: Bytes,
+        cnt: Rc<Cell<usize>>,
+    }
+
+    impl Zeros {
+        fn new(cnt: Rc<Cell<usize>>) -> Zeros {
+            let buf = vec![0; 16_384].into();
+
+            Zeros {
+                buf,
+                cnt,
+            }
+        }
+    }
+
+    impl Body for Zeros {
+        type Data = Bytes;
+
+        fn is_end_stream(&self) -> bool {
+            self.cnt.get() == 5
+        }
+
+        fn poll_data(&mut self) -> Poll<Option<Self::Data>, h2::Error> {
+            let cnt = self.cnt.get();
+
+            if cnt == 5 {
+                panic!("the library should not have called this");
+            } else {
+                self.cnt.set(cnt + 1);
+                Ok(Some(self.buf.clone()).into())
+            }
+        }
+    }
+
+    let (io, client) = mock::new();
+    let frame = vec![0; 16_384];
+    let cnt = Rc::new(Cell::new(0));
+    let cnt2 = cnt.clone();
+
+    let client = client
+        .assert_server_handshake()
+        .unwrap()
+        .recv_settings()
+        .send_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .recv_frame(frames::headers(1).response(200))
+        .recv_frame(frames::data(1, &frame[..]))
+        .recv_frame(frames::data(1, &frame[..]))
+        .recv_frame(frames::data(1, &frame[..]))
+        .recv_frame(frames::data(1, &frame[..16383]))
+        .idle_ms(100)
+        .and_then(move |v| {
+            assert_eq!(4, cnt2.get());
+            Ok(v)
+        })
+        .send_frame(
+            frames::window_update(0, 1_000_000)
+        )
+        .send_frame(
+            frames::window_update(1, 1_000_000)
+        )
+        .recv_frame(frames::data(1, &frame[..1]))
+        .recv_frame(frames::data(1, &frame[..]).eos())
+        .close();
+
+    let h2 = Server::new(
+        SyncServiceFn::new(move |request| {
+            let response = http::Response::builder()
+                .status(200)
+                .body(Zeros::new(cnt.clone()))
+                .unwrap();
+
+            Ok::<_, ()>(response.into())
+        }),
+        Default::default(), TaskExecutor::current());
+
+    CurrentThread::new()
+        .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
+        .block_on(client)
+        .unwrap();
+}
+
+#[test]
+fn respects_flow_control_no_eos_signal() {
     use futures::Poll;
     use std::cell::Cell;
     use std::rc::Rc;
@@ -154,10 +248,8 @@ fn respects_flow_control() {
             let cnt = self.cnt.get();
 
             if cnt == 5 {
-                println!("DOOOOOOOOOOOOOONE");
                 Ok(None.into())
             } else {
-                println!("CNT = {}", cnt);
                 self.cnt.set(cnt + 1);
                 Ok(Some(self.buf.clone()).into())
             }
@@ -167,6 +259,7 @@ fn respects_flow_control() {
     let (io, client) = mock::new();
     let frame = vec![0; 16_384];
     let cnt = Rc::new(Cell::new(0));
+    let cnt2 = cnt.clone();
 
     let client = client
         .assert_server_handshake()
@@ -183,8 +276,8 @@ fn respects_flow_control() {
         .recv_frame(frames::data(1, &frame[..]))
         .recv_frame(frames::data(1, &frame[..16383]))
         .idle_ms(100)
-        // TODO: Check that only 4 chunks have been sent
-        .and_then(|v| {
+        .and_then(move |v| {
+            assert_eq!(4, cnt2.get());
             Ok(v)
         })
         .send_frame(
@@ -195,10 +288,6 @@ fn respects_flow_control() {
         )
         .recv_frame(frames::data(1, &frame[..1]))
         .recv_frame(frames::data(1, &frame[..]))
-        .and_then(|v| {
-            println!("DONE SENDING");
-            Ok(v)
-        })
         .recv_frame(frames::data(1, &b""[..]).eos())
         .close();
 

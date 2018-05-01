@@ -45,7 +45,6 @@ where S: Body,
     fn poll_complete(&mut self) -> Poll<(), h2::Error> {
         use self::DataOrTrailers::*;
 
-        println!("~~~~ poll_complete ~~~~");
         loop {
             match try_ready!(self.poll_body()) {
                 Some(Data(buf)) => {
@@ -78,7 +77,6 @@ where S: Body,
         -> Poll<Option<DataOrTrailers<S::Data>>, h2::Error>
     {
         loop {
-            println!("ZOMG POLL BODY");
             match self.state {
                 FlushState::Data => {
                     // Before trying to poll the next chunk, we have to see if
@@ -88,18 +86,17 @@ where S: Body,
                     self.h2.reserve_capacity(1);
 
                     if self.h2.capacity() == 0 {
+                        // TODO: The loop should not be needed once
+                        // carllerche/h2#270 is fixed.
                         loop {
-                            let res = self.h2.poll_capacity();
-                            println!("Flush::poll_capacity; res={:?}", res);
-
-                            match try_ready!(res) {
-                                Some(0) => {
-                                    println!("wut no assigned capacity");
-                                }
+                            match try_ready!(self.h2.poll_capacity()) {
+                                Some(0) => {}
                                 Some(_) => break,
                                 None => {
-                                    println!("BUSTED");
-                                    warn!("connection closed early");
+                                    debug!("connection closed early");
+                                    // The error shouldn't really matter at this
+                                    // point as the peer has disconnected, the
+                                    // error will be discarded anyway.
                                     return Err(h2::Reason::INTERNAL_ERROR.into());
                                 }
                             }
@@ -110,7 +107,6 @@ where S: Body,
                         return Ok(Async::Ready(Some(DataOrTrailers::Data(data))));
                     } else {
                         // Release all capacity back to the connection
-                        println!("RELEASE CAP");
                         self.h2.reserve_capacity(0);
                         self.state = FlushState::Trailers;
                     }
