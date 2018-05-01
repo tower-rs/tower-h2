@@ -69,11 +69,40 @@ where S: Body,
     /// Get the next message to write, either a data frame or trailers.
     fn poll_body(&mut self) -> Poll<Option<DataOrTrailers<S::Data>>, h2::Error> {
         loop {
+            println!("ZOMG POLL BODY");
             match self.state {
                 FlushState::Data => {
+                    // Before trying to poll the next chunk, we have to see if
+                    // the h2 connection has capacity. We do this by requesting
+                    // a single byte (since we don't know how big the next chunk
+                    // will be.
+                    self.h2.reserve_capacity(1);
+
+                    if self.h2.capacity() == 0 {
+                        loop {
+                            let res = self.h2.poll_capacity();
+                            println!("Flush::poll_capacity; res={:?}", res);
+
+                            match try_ready!(res) {
+                                Some(0) => {
+                                    println!("wut no assigned capacity");
+                                }
+                                Some(_) => break,
+                                None => {
+                                    println!("BUSTED");
+                                    warn!("connection closed early");
+                                    return Err(h2::Reason::INTERNAL_ERROR.into());
+                                }
+                            }
+                        }
+                    }
+
                     if let Some(data) = try_ready!(self.body.poll_data()) {
                         return Ok(Async::Ready(Some(DataOrTrailers::Data(data))));
                     } else {
+                        // Release all capacity back to the connection
+                        println!("RELEASE CAP");
+                        self.h2.reserve_capacity(0);
                         self.state = FlushState::Trailers;
                     }
                 }

@@ -8,6 +8,12 @@ authors = [
 description = "Provides an HTTP/2.0 Tower Service"
 publish = false
 
+[workspace]
+
+members = [
+    "tests",
+]
+
 [dependencies]
 bytes = "0.4"
 futures = "0.1"
