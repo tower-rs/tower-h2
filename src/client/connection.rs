@@ -1,5 +1,6 @@
 use {Body, RecvBody};
 use super::Background;
+use buf::SendBuf;
 use flush::Flush;
 
 use bytes::IntoBuf;
@@ -18,7 +19,7 @@ use std::marker::PhantomData;
 pub struct Connection<T, E, S>
 where S: Body,
 {
-    client: SendRequest<S::Data>,
+    client: SendRequest<SendBuf<<S::Data as IntoBuf>::Buf>>,
     executor: E,
     _p: PhantomData<(T, S)>,
 }
@@ -27,7 +28,7 @@ where S: Body,
 pub struct Handshake<T, E, S>
 where S: Body,
 {
-    inner: h2::client::Handshake<T, S::Data>,
+    inner: h2::client::Handshake<T, SendBuf<<S::Data as IntoBuf>::Buf>>,
     executor: E,
 }
 
@@ -80,7 +81,9 @@ where S: Body,
       T: AsyncRead + AsyncWrite,
 {
     /// Builds Connection on an H2 client connection.
-    pub fn new(client: SendRequest<S::Data>, executor: E) -> Self {
+    pub(crate) fn new(client: SendRequest<SendBuf<<S::Data as IntoBuf>::Buf>>, executor: E)
+        -> Self
+    {
         let _p = PhantomData;
 
         Connection {
@@ -195,7 +198,7 @@ where T: AsyncRead + AsyncWrite,
       S: Body,
 {
     /// Start an HTTP/2.0 handshake with the provided builder
-    pub fn new(io: T, executor: E, builder: &Builder) -> Self {
+    pub(crate) fn new(io: T, executor: E, builder: &Builder) -> Self {
         let inner = builder.handshake(io);
 
         Handshake {
@@ -254,9 +257,9 @@ impl From<h2::Reason> for Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.kind {
-            Kind::Inner(ref h2) => 
+            Kind::Inner(ref h2) =>
                 write!(f, "Error caused by underlying HTTP/2 error: {}", h2),
-            Kind::Spawn => 
+            Kind::Spawn =>
                 write!(f, "Error spawning background task"),
         }
     }
@@ -292,12 +295,12 @@ impl fmt::Display for HandshakeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             HandshakeError::Proto(ref h2) =>
-                write!(f, 
+                write!(f,
                     "An error occurred while attempting to perform the HTTP/2 \
-                    handshake: {}", 
+                    handshake: {}",
                     h2),
             HandshakeError::Execute =>
-                write!(f, 
+                write!(f,
                     "An error occurred while attempting to execute a worker \
                      task."),
         }
@@ -321,5 +324,4 @@ impl error::Error for HandshakeError {
                 "error attempting to execute a worker task",
         }
     }
-
 }

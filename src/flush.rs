@@ -1,5 +1,7 @@
 use Body;
+use buf::SendBuf;
 
+use bytes::IntoBuf;
 use futures::{Future, Poll, Async};
 use h2::{self, SendStream};
 use http::HeaderMap;
@@ -8,7 +10,7 @@ use http::HeaderMap;
 pub(crate) struct Flush<S>
 where S: Body,
 {
-    h2: SendStream<S::Data>,
+    h2: SendStream<SendBuf<<S::Data as IntoBuf>::Buf>>,
     body: S,
     state: FlushState,
 }
@@ -29,7 +31,9 @@ enum DataOrTrailers<B> {
 impl<S> Flush<S>
 where S: Body,
 {
-    pub fn new(src: S, dst: SendStream<S::Data>) -> Self {
+    pub fn new(src: S, dst: SendStream<SendBuf<<S::Data as IntoBuf>::Buf>>)
+        -> Self
+    {
         Flush {
             h2: dst,
             body: src,
@@ -39,35 +43,40 @@ where S: Body,
 
     /// Try to flush the body.
     fn poll_complete(&mut self) -> Poll<(), h2::Error> {
-        let mut first = try_ready!(self.poll_body());
+        use self::DataOrTrailers::*;
 
+        println!("~~~~ poll_complete ~~~~");
         loop {
-            if let Some(DataOrTrailers::Data(buf)) = first {
-                let second = self.poll_body()?;
-                let eos = if let Async::Ready(None) = second {
-                    true
-                } else {
-                    false
-                };
-                self.h2.send_data(buf, eos)?;
-                if eos {
-                    return Ok(Async::Ready(()));
-                } else if let Async::Ready(item) = second {
-                    first = item;
-                } else {
-                    return Ok(Async::NotReady);
+            match try_ready!(self.poll_body()) {
+                Some(Data(buf)) => {
+                    let eos = self.body.is_end_stream();
+
+                    self.h2.send_data(SendBuf::new(buf.into_buf()), eos)?;
+
+                    if eos {
+                        self.state = FlushState::Done;
+                        return Ok(Async::Ready(()));
+                    }
                 }
-            } else if let Some(DataOrTrailers::Trailers(trailers)) = first {
-                self.h2.send_trailers(trailers)?;
-                return Ok(Async::Ready(()));
-            } else {
-                return Ok(Async::Ready(()));
+                Some(Trailers(trailers)) => {
+                    self.h2.send_trailers(trailers)?;
+                    return Ok(Async::Ready(()));
+                }
+                None => {
+                    // If this is hit, then an EOS was not reached via the other
+                    // paths. So, we must send an empty data frame with EOS.
+                    self.h2.send_data(SendBuf::none(), true)?;
+
+                    return Ok(Async::Ready(()));
+                }
             }
         }
     }
 
     /// Get the next message to write, either a data frame or trailers.
-    fn poll_body(&mut self) -> Poll<Option<DataOrTrailers<S::Data>>, h2::Error> {
+    fn poll_body(&mut self)
+        -> Poll<Option<DataOrTrailers<S::Data>>, h2::Error>
+    {
         loop {
             println!("ZOMG POLL BODY");
             match self.state {

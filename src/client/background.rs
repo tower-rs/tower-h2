@@ -1,6 +1,8 @@
 use Body;
+use buf::SendBuf;
 use flush::Flush;
 
+use bytes::IntoBuf;
 use futures::{Future, Poll};
 use h2::client::Connection;
 use tokio_io::{AsyncRead, AsyncWrite};
@@ -18,7 +20,7 @@ where S: Body,
 enum Task<T, S>
 where S: Body,
 {
-    Connection(Connection<T, S::Data>),
+    Connection(Connection<T, SendBuf<<S::Data as IntoBuf>::Buf>>),
     Flush(Flush<S>),
 }
 
@@ -27,7 +29,7 @@ where S: Body,
 impl<T, S> Background<T, S>
 where S: Body,
 {
-    pub(crate) fn connection(connection: Connection<T, S::Data>) -> Self {
+    pub(crate) fn connection(connection: Connection<T, SendBuf<<S::Data as IntoBuf>::Buf>>) -> Self {
         let task = Task::Connection(connection);
         Background { task }
     }
