@@ -13,7 +13,11 @@ matrix:
     - rust: nightly
 
 script:
+  # Run lib and doc tests
   - cargo test
+
+  # Run integration tests
+  - cargo test -p tests
 
 deploy:
   provider:  pages
