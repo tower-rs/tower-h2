@@ -71,7 +71,7 @@ impl<T> BoxBody<T> {
 }
 
 impl<T> Body for BoxBody<T>
-where T: IntoBuf + Default + 'static,
+where T: IntoBuf + 'static,
 {
     type Data = T;
 
@@ -105,7 +105,7 @@ impl<T> UnsyncBoxBody<T> {
 }
 
 impl<T> Body for UnsyncBoxBody<T>
-where T: IntoBuf + Default + 'static,
+where T: IntoBuf + 'static,
 {
     type Data = T;
 
