@@ -5,7 +5,7 @@ extern crate h2;
 extern crate http;
 extern crate string;
 extern crate tokio_connect;
-extern crate tokio_core;
+extern crate tokio;
 extern crate tower_h2;
 extern crate tower_service;
 
@@ -14,37 +14,37 @@ use bytes::Bytes;
 use http::{Request, Response};
 use std::net::SocketAddr;
 use string::{String, TryFrom};
-use tokio_core::net::TcpStream;
-use tokio_core::reactor::{Core, Handle};
+use tokio::net::TcpStream;
+use tokio::runtime::{Runtime, TaskExecutor};
 use tower_h2::{Body, RecvBody};
 use tower_h2::client::Connect;
 use tower_service::{NewService, Service};
 use h2::Reason;
 
-pub struct Conn(SocketAddr, Handle);
+pub struct Conn(SocketAddr);
 
 fn main() {
     drop(env_logger::init());
 
-    let mut core = Core::new().unwrap();
-    let reactor = core.handle();
+    let rt = Runtime::new().unwrap();
+    let executor = rt.executor();
 
     let addr = "[::1]:8888".parse().unwrap();
 
     impl tokio_connect::Connect for Conn {
         type Connected = TcpStream;
         type Error = ::std::io::Error;
-        type Future = Box<Future<Item = TcpStream, Error = ::std::io::Error>>;
+        type Future = Box<Future<Item = TcpStream, Error = ::std::io::Error> + Send>;
 
         fn connect(&self) -> Self::Future {
-            let c = TcpStream::connect(&self.0, &self.1)
+            let c = TcpStream::connect(&self.0)
                 .and_then(|tcp| tcp.set_nodelay(true).map(move |_| tcp));
             Box::new(c)
         }
     }
 
-    let conn = Conn(addr, reactor.clone());
-    let h2 = Connect::new(conn, Default::default(), reactor);
+    let conn = Conn(addr);
+    let h2 = Connect::new(conn, Default::default(), executor.clone());
 
     let done = h2.new_service()
         .map_err(|_| Reason::REFUSED_STREAM.into())
@@ -58,14 +58,14 @@ fn main() {
         .map(|_| println!("done"))
         .map_err(|e| println!("error: {:?}", e));
 
-    core.run(done).unwrap();
+    tokio::run(done);
 }
 
 /// Avoids overflowing max concurrent streams
 struct Serial {
     count: usize,
-    h2: tower_h2::client::Connection<TcpStream, Handle, ()>,
-    pending: Option<Box<Future<Item = (), Error = tower_h2::client::Error>>>,
+    h2: tower_h2::client::Connection<TcpStream, TaskExecutor, ()>,
+    pending: Option<Box<Future<Item = (), Error = tower_h2::client::Error> + Send>>,
 }
 
 impl Future for Serial {
