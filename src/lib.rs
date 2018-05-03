@@ -14,6 +14,7 @@ pub mod client;
 pub mod server;
 
 mod body;
+mod buf;
 mod flush;
 mod recv_body;
 mod service;

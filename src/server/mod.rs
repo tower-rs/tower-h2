@@ -1,7 +1,9 @@
 use {flush, Body, RecvBody};
+use buf::SendBuf;
 
 use tower_service::{NewService, Service};
 
+use bytes::IntoBuf;
 use futures::{Async, Future, Poll, Stream};
 use futures::future::{Executor, Either, Join, MapErr};
 use h2::{self, Reason};
@@ -47,17 +49,17 @@ where T: AsyncRead + AsyncWrite,
 {
     /// Establish the HTTP/2.0 connection and get a service to process inbound
     /// requests.
-    Init(Init<T, B::Data, S::Future, S::InitError>),
+    Init(Init<T, SendBuf<<B::Data as IntoBuf>::Buf>, S::Future, S::InitError>),
 
     /// Both the HTTP/2.0 connection and the service are ready.
     Ready {
-        connection: Accept<T, B::Data>,
+        connection: Accept<T, SendBuf<<B::Data as IntoBuf>::Buf>>,
         service: S::Service,
     },
 
     /// The service has closed, so poll until connection is closed.
     GoAway {
-        connection: Accept<T, B::Data>,
+        connection: Accept<T, SendBuf<<B::Data as IntoBuf>::Buf>>,
         error: Error<S>,
     },
 
@@ -84,7 +86,7 @@ enum BackgroundState<T, B>
 where B: Body,
 {
     Respond {
-        respond: SendResponse<B::Data>,
+        respond: SendResponse<SendBuf<<B::Data as IntoBuf>::Buf>>,
         response: T,
     },
     Flush(flush::Flush<B>),
@@ -379,7 +381,9 @@ impl<T, B> Background<T, B>
 where T: Future,
       B: Body,
 {
-    fn new(respond: SendResponse<B::Data>, response: T) -> Self {
+    fn new(respond: SendResponse<SendBuf<<B::Data as IntoBuf>::Buf>>, response: T)
+        -> Self
+    {
         Background {
             state: BackgroundState::Respond {
                 respond,
