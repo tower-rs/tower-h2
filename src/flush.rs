@@ -53,6 +53,17 @@ where S: Body,
                     self.h2.send_data(SendBuf::new(buf.into_buf()), eos)?;
 
                     if eos {
+                        // The stream was ended by a DATA frame with the EOS
+                        // flag set. We have to call `poll_trailers` now so that
+                        // the stream can mark itself as completed successfully,
+                        // but we expect it to return `None`, since trailers
+                        // can't follow an EOS frame.
+                        if try_ready!(self.body.poll_trailers()).is_some() {
+                            warn!(
+                                "Flush::poll_complete: received TRAILERS frame \
+                                 after stream was ended by a DATA frame."
+                            );
+                        }
                         self.state = FlushState::Done;
                         return Ok(Async::Ready(()));
                     }
