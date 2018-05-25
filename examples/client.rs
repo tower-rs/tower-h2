@@ -26,7 +26,7 @@ pub struct Conn(SocketAddr);
 fn main() {
     drop(env_logger::init());
 
-    let rt = Runtime::new().unwrap();
+    let mut rt = Runtime::new().unwrap();
     let executor = rt.executor();
 
     let addr = "[::1]:8888".parse().unwrap();
@@ -58,7 +58,8 @@ fn main() {
         .map(|_| println!("done"))
         .map_err(|e| println!("error: {:?}", e));
 
-    tokio::run(done);
+    rt.spawn(done);
+    rt.shutdown_on_idle().wait().unwrap();
 }
 
 /// Avoids overflowing max concurrent streams

@@ -119,7 +119,7 @@ fn main() {
         .map(|_| {})
         ;
 
-    tokio::run(serve);
-    rt.shutdown_now()
+    rt.spawn(serve);
+    rt.shutdown_on_idle()
         .wait().unwrap();
 }
