@@ -101,7 +101,28 @@ where S: Body,
                                 }
                             }
                         }
+                    } else {
+                        // If there was capacity already assigned, then the
+                        // stream state wasn't polled, but we should fail out
+                        // if the stream has been reset, so we poll for that.
+                        match self.h2.poll_reset()? {
+                            Async::Ready(reason) => {
+                                debug!(
+                                    "stream received RST_STREAM while flushing: {:?}",
+                                    reason,
+                                );
+                                return Err(reason.into());
+                            },
+                            Async::NotReady => {
+                                // Stream hasn't been reset, so we can try
+                                // to send data below. This task has been
+                                // registered in case data isn't ready
+                                // before we get a RST_STREAM.
+                            }
+                        }
                     }
+
+
 
                     if let Some(data) = try_ready!(self.body.poll_data()) {
                         return Ok(Async::Ready(Some(DataOrTrailers::Data(data))));
@@ -112,6 +133,21 @@ where S: Body,
                     }
                 }
                 FlushState::Trailers => {
+                    match self.h2.poll_reset()? {
+                        Async::Ready(reason) => {
+                            debug!(
+                                "stream received RST_STREAM while flushing trailers: {:?}",
+                                reason,
+                            );
+                            return Err(reason.into());
+                        },
+                        Async::NotReady => {
+                            // Stream hasn't been reset, so we can try
+                            // to send trailers below. This task has been
+                            // registered in case they aren't ready
+                            // before we get a RST_STREAM.
+                        }
+                    }
                     let trailers = try_ready!(self.body.poll_trailers());
                     self.state = FlushState::Done;
                     if let Some(trailers) = trailers {
