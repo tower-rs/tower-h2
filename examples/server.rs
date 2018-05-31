@@ -5,15 +5,15 @@ extern crate h2;
 extern crate http;
 #[macro_use]
 extern crate log;
-extern crate tokio_core;
+extern crate tokio;
 extern crate tower_h2;
 extern crate tower_service;
 
 use bytes::Bytes;
 use futures::*;
 use http::Request;
-use tokio_core::net::TcpListener;
-use tokio_core::reactor::Core;
+use tokio::net::TcpListener;
+use tokio::runtime::Runtime;
 use tower_h2::{Body, Server, RecvBody};
 use tower_service::{NewService, Service};
 
@@ -96,16 +96,16 @@ impl NewService for NewSvc {
 fn main() {
     drop(env_logger::init());
 
-    let mut core = Core::new().unwrap();
-    let reactor = core.handle();
+    let mut rt = Runtime::new().unwrap();
+    let reactor = rt.executor();
 
     let h2 = Server::new(NewSvc, Default::default(), reactor.clone());
 
     let addr = "[::1]:8888".parse().unwrap();
-    let bind = TcpListener::bind(&addr, &reactor).expect("bind");
+    let bind = TcpListener::bind(&addr).expect("bind");
 
     let serve = bind.incoming()
-        .fold((h2, reactor), |(h2, reactor), (sock, _)| {
+        .fold((h2, reactor), |(h2, reactor), sock| {
             if let Err(e) = sock.set_nodelay(true) {
                 return Err(e);
             }
@@ -114,7 +114,12 @@ fn main() {
             reactor.spawn(serve.map_err(|e| error!("h2 error: {:?}", e)));
 
             Ok((h2, reactor))
-        });
+        })
+        .map_err(|e| error!("serve error: {:?}", e))
+        .map(|_| {})
+        ;
 
-    core.run(serve).unwrap();
+    rt.spawn(serve);
+    rt.shutdown_on_idle()
+        .wait().unwrap();
 }

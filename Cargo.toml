@@ -20,7 +20,6 @@ futures = "0.1"
 h2 = "0.1.9"
 http = "0.1"
 log = "0.4"
-tokio-core = "0.1"
 tokio-connect = { git = "https://github.com/carllerche/tokio-connect" }
 tokio-io = "0.1"
 tower-service = { git = "https://github.com/tower-rs/tower" }
@@ -28,3 +27,4 @@ tower-service = { git = "https://github.com/tower-rs/tower" }
 [dev-dependencies]
 env_logger = { version = "^0.5", default-features = false }
 string = { git = "https://github.com/carllerche/string" }
+tokio = "0.1"
