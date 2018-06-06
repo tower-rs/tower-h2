@@ -39,6 +39,7 @@ where
     fn instrument(&self, handle: T, rsp: http::Response<B>) -> Self::Output {
         let (parts, body) = rsp.into_parts();
         let handle = if body.is_end_stream() {
+            drop(handle);
             None
         } else {
             Some(handle)
@@ -60,6 +61,7 @@ where
     fn instrument(&self, handle: T, rsp: http::Response<B>) -> Self::Output {
         let (parts, body) = rsp.into_parts();
         let handle = if body.is_end_stream() {
+            drop(handle);
             None
         } else {
             Some(handle)
