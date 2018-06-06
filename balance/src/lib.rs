@@ -6,76 +6,74 @@ extern crate tower_balance;
 extern crate tower_h2;
 
 use futures::Poll;
-use tower_balance::load::Measure;
+use tower_balance::load::Instrument;
 use tower_h2::Body;
 
-pub struct MeasureFirstData;
+pub struct InstrumentFirstData;
 
-pub struct MeasureEos;
+pub struct InstrumentEos;
 
-pub struct MeasureFirstDataBody<T, B> {
-    instrument: Option<T>,
+pub struct InstrumentFirstDataBody<T, B> {
+    handle: Option<T>,
     body: B,
 }
 
-pub struct MeasureEosBody<T, B> {
-    instrument: Option<T>,
+pub struct InstrumentEosBody<T, B> {
+    handle: Option<T>,
     body: B,
 }
 
-impl<T, B> Measure<T, http::Response<B>> for MeasureFirstData
+impl<T, B> Instrument<T, http::Response<B>> for InstrumentFirstData
 where
     T: Sync + Send + 'static,
     B: Body + 'static,
 {
-    type Measured = http::Response<MeasureFirstDataBody<T, B>>;
+    type Output = http::Response<InstrumentFirstDataBody<T, B>>;
 
-    fn measure(instrument: T, rsp: http::Response<B>) -> Self::Measured {
+    fn instrument(&self, handle: T, rsp: http::Response<B>) -> Self::Output {
         let (parts, body) = rsp.into_parts();
-        http::Response::from_parts(parts, MeasureFirstDataBody {
-            instrument: Some(instrument),
+        http::Response::from_parts(parts, InstrumentFirstDataBody {
+            handle: Some(handle),
             body,
         })
     }
 }
 
-impl<T, B> Measure<T, http::Response<B>> for MeasureEos
+impl<T, B> Instrument<T, http::Response<B>> for InstrumentEos
 where
     T: Sync + Send + 'static,
     B: Body + 'static,
 {
-    type Measured = http::Response<MeasureEosBody<T, B>>;
+    type Output = http::Response<InstrumentEosBody<T, B>>;
 
-    fn measure(instrument: T, rsp: http::Response<B>) -> Self::Measured {
+    fn instrument(&self, handle: T, rsp: http::Response<B>) -> Self::Output {
         let (parts, body) = rsp.into_parts();
-        http::Response::from_parts(parts, MeasureEosBody {
-            instrument: Some(instrument),
+        http::Response::from_parts(parts, InstrumentEosBody {
+            handle: Some(handle),
             body,
         })
     }
 }
 
-impl<T, B: Body> Body for MeasureFirstDataBody<T, B> {
+impl<T, B: Body> Body for InstrumentFirstDataBody<T, B> {
     type Data = B::Data;
 
     fn is_end_stream(&self) -> bool {
         self.body.is_end_stream()
     }
 
-    /// Polls a stream of data.
     fn poll_data(&mut self) -> Poll<Option<Self::Data>, h2::Error> {
         let data = try_ready!(self.body.poll_data());
-        drop(self.instrument.take());
+        drop(self.handle.take());
         Ok(data.into())
     }
 
-    /// Returns possibly **one** `HeaderMap` for trailers.
     fn poll_trailers(&mut self) -> Poll<Option<http::HeaderMap>, h2::Error> {
         self.body.poll_trailers()
     }
 }
 
-impl<T, B: Body> Body for MeasureEosBody<T, B> {
+impl<T, B: Body> Body for InstrumentEosBody<T, B> {
     type Data = B::Data;
 
     fn is_end_stream(&self) -> bool {
