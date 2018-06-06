@@ -5,68 +5,67 @@ extern crate tower_balance;
 extern crate tower_h2;
 
 use futures::{Async, Poll};
-use std::marker::PhantomData;
 use tower_balance::load::Instrument;
 
 /// Instruments HTTP responses to drop handles when their first body message is received.
-#[derive(Clone, Debug)]
-pub struct PendingUntilFirstData;
+#[derive(Clone, Debug, Default)]
+pub struct PendingUntilFirstData(());
 
 /// Instruments HTTP responses to drop handles when their streams completes.
-#[derive(Clone, Debug)]
-pub struct PendingUntilEos;
+#[derive(Clone, Debug, Default)]
+pub struct PendingUntilEos(());
 
-/// An instrumented HTTP body that drops its handle according to the `S`-typed strategy.
-pub struct Body<T, B, S> {
+/// An instrumented HTTP body that drops its handle when the first data is received.
+pub struct PendingUntilFirstDataBody<T, B> {
     handle: Option<T>,
     body: B,
-    _p: PhantomData<S>,
 }
 
-// Instrumentation helper.
-fn instrument_body<T, B, S>(handle: T, rsp: http::Response<B>) -> http::Response<Body<T, B, S>>
-where
-    B: tower_h2::Body,
-{
-    let (parts, body) = rsp.into_parts();
-    let handle = if body.is_end_stream() {
-        None
-    } else {
-        Some(handle)
-    };
-    let body = Body {
-        handle,
-        body,
-        _p: PhantomData,
-    };
-    http::Response::from_parts(parts, body)
+/// An instrumented HTTP body that drops its handle upon completion.
+pub struct PendingUntilEosBody<T, B> {
+    handle: Option<T>,
+    body: B,
 }
 
-// ==== PendingUntilEos ====
+// ==== PendingUntilEos ====::default()
 
 impl<T, B> Instrument<T, http::Response<B>> for PendingUntilFirstData
 where
     T: Sync + Send + 'static,
     B: tower_h2::Body + 'static,
 {
-    type Output = http::Response<Body<T, B, Self>>;
+    type Output = http::Response<PendingUntilFirstDataBody<T, B>>;
 
     fn instrument(&self, handle: T, rsp: http::Response<B>) -> Self::Output {
-        instrument_body(handle, rsp)
+        let (parts, body) = rsp.into_parts();
+        let handle = if body.is_end_stream() {
+            None
+        } else {
+            Some(handle)
+        };
+        let body = PendingUntilFirstDataBody { handle, body };
+        http::Response::from_parts(parts, body)
     }
 }
 
-// ==== PendingUntilEos ====
+// ==== PendingUntilEos ====::default()
 
 impl<T, B> Instrument<T, http::Response<B>> for PendingUntilEos
 where
     T: Sync + Send + 'static,
     B: tower_h2::Body + 'static,
 {
-    type Output = http::Response<Body<T, B, Self>>;
+    type Output = http::Response<PendingUntilEosBody<T, B>>;
 
     fn instrument(&self, handle: T, rsp: http::Response<B>) -> Self::Output {
-        instrument_body(handle, rsp)
+        let (parts, body) = rsp.into_parts();
+        let handle = if body.is_end_stream() {
+            None
+        } else {
+            Some(handle)
+        };
+        let body = PendingUntilEosBody { handle, body };
+        http::Response::from_parts(parts, body)
     }
 }
 
@@ -84,7 +83,7 @@ macro_rules! return_if_not_ready {
     };
 }
 
-impl<T, B> tower_h2::Body for Body<T, B, PendingUntilFirstData>
+impl<T, B> tower_h2::Body for PendingUntilFirstDataBody<T, B>
 where
     B: tower_h2::Body,
 {
@@ -113,7 +112,7 @@ where
     }
 }
 
-impl<T, B: tower_h2::Body> tower_h2::Body for Body<T, B, PendingUntilEos> {
+impl<T, B: tower_h2::Body> tower_h2::Body for PendingUntilEosBody<T, B> {
     type Data = B::Data;
 
     fn is_end_stream(&self) -> bool {
@@ -163,7 +162,7 @@ mod tests {
         };
 
         let (h, wk) = Handle::new();
-        let (_, mut body) = PendingUntilFirstData
+        let (_, mut body) = PendingUntilFirstData::default()
             .instrument(h, http::Response::new(body))
             .into_parts();
         assert!(wk.upgrade().is_some());
@@ -177,7 +176,7 @@ mod tests {
         let body = TestBody::default();
 
         let (h, wk) = Handle::new();
-        let (_, _body) = PendingUntilFirstData
+        let (_, _body) = PendingUntilFirstData::default()
             .instrument(h, http::Response::new(body))
             .into_parts();
         assert!(wk.upgrade().is_none());
@@ -192,7 +191,7 @@ mod tests {
         };
 
         let (h, wk) = Handle::new();
-        let (_, body) = PendingUntilFirstData
+        let (_, body) = PendingUntilFirstData::default()
             .instrument(h, http::Response::new(body))
             .into_parts();
         assert!(wk.upgrade().is_some());
@@ -212,7 +211,7 @@ mod tests {
         };
 
         let (h, wk) = Handle::new();
-        let (_, mut body) = PendingUntilFirstData
+        let (_, mut body) = PendingUntilFirstData::default()
             .instrument(h, http::Response::new(body))
             .into_parts();
         assert!(wk.upgrade().is_some());
@@ -231,7 +230,7 @@ mod tests {
         };
 
         let (h, wk) = Handle::new();
-        let (_, mut body) = PendingUntilEos
+        let (_, mut body) = PendingUntilEos::default()
             .instrument(h, http::Response::new(body))
             .into_parts();
         assert!(wk.upgrade().is_some());
@@ -248,7 +247,7 @@ mod tests {
         let body = TestBody::default();
 
         let (h, wk) = Handle::new();
-        let (_, _body) = PendingUntilEos
+        let (_, _body) = PendingUntilEos::default()
             .instrument(h, http::Response::new(body))
             .into_parts();
         assert!(wk.upgrade().is_none());
@@ -264,7 +263,7 @@ mod tests {
         };
 
         let (h, wk) = Handle::new();
-        let (_, mut body) = PendingUntilEos
+        let (_, mut body) = PendingUntilEos::default()
             .instrument(h, http::Response::new(body))
             .into_parts();
         assert!(wk.upgrade().is_some());
@@ -293,7 +292,7 @@ mod tests {
         };
 
         let (h, wk) = Handle::new();
-        let (_, mut body) = PendingUntilEos
+        let (_, mut body) = PendingUntilEos::default()
             .instrument(h, http::Response::new(body))
             .into_parts();
         assert!(wk.upgrade().is_some());
