@@ -27,7 +27,7 @@ pub struct PendingUntilEosBody<T, B> {
     body: B,
 }
 
-// ==== PendingUntilEos ====
+// ==== PendingUntilFirstData ====
 
 impl<T, B> Instrument<T, http::Response<B>> for PendingUntilFirstData
 where
@@ -71,8 +71,6 @@ where
     }
 }
 
-// ==== Body ====
-
 /// Helps to ensure a future is not ready, regardless of whether it failed or not.
 macro_rules! return_if_not_ready {
     ($poll:expr) => {
@@ -83,6 +81,20 @@ macro_rules! return_if_not_ready {
             ret => ret,
         }
     };
+}
+
+// ==== PendingUntilFirstDataBody ====
+
+impl<T, B> Default for PendingUntilFirstDataBody<T, B>
+where
+    B: tower_h2::Body + Default,
+{
+    fn default() -> Self {
+        Self {
+            body: B::default(),
+            handle: None,
+        }
+    }
 }
 
 impl<T, B> tower_h2::Body for PendingUntilFirstDataBody<T, B>
@@ -111,6 +123,20 @@ where
         drop(self.handle.take());
 
         self.body.poll_trailers()
+    }
+}
+
+// ==== PendingUntilEosBody ====
+
+impl<T, B> Default for PendingUntilEosBody<T, B>
+where
+    B: tower_h2::Body + Default,
+{
+    fn default() -> Self {
+        Self {
+            body: B::default(),
+            handle: None,
+        }
     }
 }
 
