@@ -16,12 +16,14 @@ pub struct PendingUntilFirstData(());
 pub struct PendingUntilEos(());
 
 /// An instrumented HTTP body that drops its handle when the first data is received.
+#[derive(Debug)]
 pub struct PendingUntilFirstDataBody<T, B> {
     handle: Option<T>,
     body: B,
 }
 
 /// An instrumented HTTP body that drops its handle upon completion.
+#[derive(Debug)]
 pub struct PendingUntilEosBody<T, B> {
     handle: Option<T>,
     body: B,
