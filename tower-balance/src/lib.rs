@@ -27,7 +27,7 @@ pub struct PendingUntilEosBody<T, B> {
     body: B,
 }
 
-// ==== PendingUntilEos ====::default()
+// ==== PendingUntilEos ====
 
 impl<T, B> Instrument<T, http::Response<B>> for PendingUntilFirstData
 where
@@ -49,7 +49,7 @@ where
     }
 }
 
-// ==== PendingUntilEos ====::default()
+// ==== PendingUntilEos ====
 
 impl<T, B> Instrument<T, http::Response<B>> for PendingUntilEos
 where
