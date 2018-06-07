@@ -33,8 +33,7 @@ pub struct PendingUntilEosBody<T, B> {
 
 impl<T, B> Instrument<T, http::Response<B>> for PendingUntilFirstData
 where
-    T: Sync + Send + 'static,
-    B: tower_h2::Body + 'static,
+    B: tower_h2::Body,
 {
     type Output = http::Response<PendingUntilFirstDataBody<T, B>>;
 
@@ -55,8 +54,7 @@ where
 
 impl<T, B> Instrument<T, http::Response<B>> for PendingUntilEos
 where
-    T: Sync + Send + 'static,
-    B: tower_h2::Body + 'static,
+    B: tower_h2::Body,
 {
     type Output = http::Response<PendingUntilEosBody<T, B>>;
 
