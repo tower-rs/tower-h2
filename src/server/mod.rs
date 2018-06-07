@@ -408,6 +408,24 @@ where T: Future<Item = Response<B>>,
                 Respond { ref mut respond, ref mut response } => {
                     use flush::Flush;
 
+                    // Check if the client has reset this stream...
+                    match respond.poll_reset() {
+                        Ok(Async::Ready(reason)) => {
+                            debug!("stream received RST_FRAME: {:?}", reason);
+                            return Ok(().into());
+                        },
+                        Ok(Async::NotReady) => {
+                            // The client hasn't reset this stream yet, so keep
+                            // trying to process the response future. This will
+                            // have registered this task in case the client
+                            // DOES reset at a later point.
+                        },
+                        Err(err) => {
+                            debug!("stream poll_reset received error: {}", err);
+                            return Err(());
+                        }
+                    }
+
                     let response = try_ready!(response.poll().map_err(|_| {
                         // TODO: do something better the error?
                         let reason = Reason::INTERNAL_ERROR;

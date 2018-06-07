@@ -107,7 +107,7 @@ fn hello() {
         .close();
 
     let h2 = Server::new(
-        SyncServiceFn::new(|request| {
+        SyncServiceFn::new(|_request| {
             let response = http::Response::builder()
                 .status(200)
                 .body(())
@@ -201,7 +201,7 @@ fn respects_flow_control_eos_signal() {
         .close();
 
     let h2 = Server::new(
-        SyncServiceFn::new(move |request| {
+        SyncServiceFn::new(move |_request| {
             let response = http::Response::builder()
                 .status(200)
                 .body(Zeros::new(cnt.clone()))
@@ -292,7 +292,7 @@ fn respects_flow_control_no_eos_signal() {
         .close();
 
     let h2 = Server::new(
-        SyncServiceFn::new(move |request| {
+        SyncServiceFn::new(move |_request| {
             let response = http::Response::builder()
                 .status(200)
                 .body(Zeros::new(cnt.clone()))
@@ -306,4 +306,98 @@ fn respects_flow_control_no_eos_signal() {
         .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
         .block_on(client)
         .unwrap();
+}
+
+#[test]
+fn flushing_body_cancels_if_reset() {
+    use futures::{Async, Poll};
+    use std::rc::Rc;
+    use std::cell::Cell;
+
+    let _ = ::env_logger::try_init();
+
+    struct Zeros {
+        buf: Bytes,
+        cnt: usize,
+        dropped: Rc<Cell<usize>>,
+    }
+
+    impl Zeros {
+        fn new(dropped: Rc<Cell<usize>>) -> Zeros {
+            let buf = vec![0; 16_384].into();
+
+            Zeros {
+                buf,
+                cnt: 0,
+                dropped,
+            }
+        }
+    }
+
+    impl Drop for Zeros {
+        fn drop(&mut self) {
+            let n = self.dropped.get();
+            self.dropped.set(n + 1);
+        }
+    }
+
+    impl Body for Zeros {
+        type Data = Bytes;
+
+        fn is_end_stream(&self) -> bool {
+            false
+        }
+
+        fn poll_data(&mut self) -> Poll<Option<Self::Data>, h2::Error> {
+            if self.cnt == 1 {
+                Ok(Async::NotReady)
+            } else {
+                self.cnt += 1;
+                Ok(Some(self.buf.clone()).into())
+            }
+        }
+    }
+
+    let (io, client) = mock::new();
+    let frame = vec![0; 16_384];
+
+    let client = client
+        .assert_server_handshake()
+        .unwrap()
+        .recv_settings()
+        .send_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .recv_frame(frames::headers(1).response(200))
+        .recv_frame(frames::data(1, &frame[..]))
+        .idle_ms(10)
+        .send_frame(frames::reset(1).cancel())
+        .idle_ms(10)
+        .close();
+
+    let dropped = Rc::new(Cell::new(0));
+    let dropped2 = dropped.clone();
+
+    let h2 = Server::new(
+        SyncServiceFn::new(move |_request| {
+            let response = http::Response::builder()
+                .status(200)
+                .body(Zeros::new(dropped2.clone()))
+                .unwrap();
+
+            Ok::<_, ()>(response.into())
+        }),
+        Default::default(), TaskExecutor::current());
+
+    // hold on to the runtime so that after block_on, it isn't dropped
+    // immediately, which defeats our test.
+    let mut rt = CurrentThread::new();
+    rt.spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)));
+    rt.block_on(client).unwrap();
+
+    // The flush future should have finished, since it was reset. If so,
+    // it will have dropped once.
+    assert_eq!(dropped.get(), 1);
 }
