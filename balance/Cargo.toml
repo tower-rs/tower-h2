@@ -10,5 +10,5 @@ h2 = "0.1"
 
 tower-h2  = { version = "0.1", path = ".." }
 
-tower-balance = { git = "https://github.com/tower-rs/tower", branch = "ver/balance-track-rsp-h2" }
+tower-balance = { git = "https://github.com/tower-rs/tower" }
 tower-service = { git = "https://github.com/tower-rs/tower" }
