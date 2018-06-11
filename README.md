@@ -14,3 +14,13 @@ development and there has not yet been any focus on documentation (because you
 shouldn't be using it yet!).
 
 Also, at some point, this will be folded into Hyper.
+
+## License
+
+This project is licensed under the [MIT license](LICENSE).
+
+### Contribution
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in `tower-h2` by you, shall be licensed as MIT, without any
+additional terms or conditions.
