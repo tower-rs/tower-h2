@@ -5,6 +5,7 @@ authors = [
   "Carl Lerche <me@carllerche.com>",
   "Oliver Gould <ver@buoyant.io>",
 ]
+license = "MIT"
 description = "Provides an HTTP/2.0 Tower Service"
 publish = false
 
