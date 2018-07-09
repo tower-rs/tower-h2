@@ -8,6 +8,7 @@ use http;
 #[derive(Debug, Default)]
 pub struct RecvBody {
     inner: Option<h2::RecvStream>,
+    stream_id: h2::StreamId,
 }
 
 #[derive(Debug)]
@@ -21,7 +22,18 @@ pub struct Data {
 impl RecvBody {
     /// Return a new `RecvBody`.
     pub(crate) fn new(inner: h2::RecvStream) -> Self {
-        RecvBody { inner: Some(inner) }
+        // Get this eagerly so we still have it if the stream has closed and
+        // self.inner is None.
+        let stream_id = inner.stream_id();
+        RecvBody {
+            inner: Some(inner),
+            stream_id,
+        }
+    }
+
+    /// Returns the stream ID of the received stream.
+    pub fn stream_id(&self) -> h2::StreamId {
+        self.stream_id
     }
 }
 
