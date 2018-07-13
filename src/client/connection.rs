@@ -191,6 +191,17 @@ impl Future for ResponseFuture {
     }
 }
 
+impl ResponseFuture {
+    /// Returns the stream ID of the response stream, or `None` if this future
+    /// does not correspond to a stream.
+    pub fn stream_id(&self) -> Option<h2::StreamId> {
+        match self.inner {
+            Inner::Inner(ref rsp) => Some(rsp.stream_id()),
+            _ => None,
+        }
+    }
+}
+
 // ===== impl Handshake =====
 
 impl<T, E, S> Handshake<T, E, S>
