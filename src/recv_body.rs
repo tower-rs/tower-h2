@@ -23,6 +23,12 @@ impl RecvBody {
     pub(crate) fn new(inner: h2::RecvStream) -> Self {
         RecvBody { inner: Some(inner) }
     }
+
+    /// Returns the stream ID of the received stream, or `None` if this body
+    /// does not correspond to a stream.
+    pub fn stream_id(&self) -> Option<h2::StreamId> {
+        self.inner.as_ref().map(h2::RecvStream::stream_id)
+    }
 }
 
 impl Body for RecvBody {
