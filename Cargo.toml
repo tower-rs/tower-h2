@@ -19,7 +19,7 @@ members = [
 [dependencies]
 bytes = "0.4"
 futures = "0.1"
-h2 = { git = "https://github.com/carllerche/h2" }
+h2 = "0.1.11"
 http = "0.1"
 log = "0.4"
 tokio-connect = { git = "https://github.com/carllerche/tokio-connect" }
