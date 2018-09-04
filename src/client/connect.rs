@@ -13,7 +13,7 @@ use std::error::Error;
 use std::fmt;
 use std::marker::PhantomData;
 
-/// Establishes an H2 client connection.
+/// Establishes an H2 client connection.\
 ///
 /// Has a builder-like API for configuring client connections.  Currently this only allows
 /// the configuration of TLS transport on new services created by this factory.
@@ -94,13 +94,12 @@ where
     }
 }
 
-impl<C, E, S> NewService for Connect<C, E, S>
+impl<C, E, S> NewService<Request<S>> for Connect<C, E, S>
 where
     C: tokio_connect::Connect + 'static,
     E: Executor<Background<C::Connected, S>> + Clone,
     S: Body + 'static,
 {
-    type Request = Request<S>;
     type Response = Response<RecvBody>;
     type Error = super::Error;
     type InitError = ConnectError<C::Error>;

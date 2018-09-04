@@ -10,9 +10,7 @@ use futures::{Future, Poll};
 /// This is not intended to be implemented directly. Instead, it is a trait
 /// alias of sorts. Implements the `tower_service::Service` trait using
 /// `http::Request` and `http::Response` types.
-pub trait HttpService: ::sealed::Sealed {
-    /// Request payload.
-    type RequestBody: Body;
+pub trait HttpService<RequestBody>: ::sealed::GenericSealed1<RequestBody> {
 
     /// Response payload.
     type ResponseBody: Body;
@@ -27,7 +25,7 @@ pub trait HttpService: ::sealed::Sealed {
     fn poll_ready(&mut self) -> Poll<(), Self::Error>;
 
     /// Process the request and return the response asynchronously.
-    fn call(&mut self, request: Request<Self::RequestBody>) -> Self::Future;
+    fn call(&mut self, request: Request<RequestBody>) -> Self::Future;
 
     /// Wrap the HttpService so that it implements tower_service::Service
     /// directly.
@@ -64,13 +62,12 @@ pub struct LiftServiceRef<'a, T: 'a> {
     inner: &'a mut T,
 }
 
-impl<T, B1, B2> HttpService for T
-where T: Service<Request = Request<B1>,
+impl<T, B1, B2> HttpService<B1> for T
+where T: Service<Request<B1>,
                 Response = Response<B2>>,
       B1: Body,
       B2: Body,
 {
-    type RequestBody = B1;
     type ResponseBody = B2;
     type Error = T::Error;
     type Future = T::Future;
@@ -79,20 +76,22 @@ where T: Service<Request = Request<B1>,
         Service::poll_ready(self)
     }
 
-    fn call(&mut self, request: Request<Self::RequestBody>) -> Self::Future {
+    fn call(&mut self, request: Request<B1>) -> Self::Future {
         Service::call(self, request)
     }
 }
 
-impl<T, B1, B2> ::sealed::Sealed for T
-where T: Service<Request = Request<B1>,
-                Response = Response<B2>>,
-      B1: Body,
-      B2: Body,
+impl<T, B> ::sealed::GenericSealed1<B> for T
+where
+    T: Service<Request<B>>,
+    B: Body,
 {}
 
-impl<T: HttpService> Service for LiftService<T> {
-    type Request = Request<T::RequestBody>;
+impl<T, B> Service<Request<B>> for LiftService<T>
+where
+    T: HttpService<B>,
+    B: Body,
+{
     type Response = Response<T::ResponseBody>;
     type Error = T::Error;
     type Future = T::Future;
@@ -101,13 +100,15 @@ impl<T: HttpService> Service for LiftService<T> {
         self.inner.poll_ready()
     }
 
-    fn call(&mut self, request: Self::Request) -> Self::Future {
+    fn call(&mut self, request: Request<B>) -> Self::Future {
         self.inner.call(request)
     }
 }
 
-impl<'a, T: HttpService> Service for LiftServiceRef<'a, T> {
-    type Request = Request<T::RequestBody>;
+impl<'a, T, B> Service<Request<B>> for LiftServiceRef<'a, T>where
+    T: HttpService<B>,
+    B: Body,
+{
     type Response = Response<T::ResponseBody>;
     type Error = T::Error;
     type Future = T::Future;
@@ -116,7 +117,7 @@ impl<'a, T: HttpService> Service for LiftServiceRef<'a, T> {
         self.inner.poll_ready()
     }
 
-    fn call(&mut self, request: Self::Request) -> Self::Future {
+    fn call(&mut self, request: Request<B>) -> Self::Future {
         self.inner.call(request)
     }
 }

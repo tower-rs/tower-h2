@@ -8,7 +8,7 @@ use futures::{Async, Future, Poll, Stream};
 use futures::future::{Executor, Either, Join, MapErr};
 use h2::{self, Reason};
 use h2::server::{Connection as Accept, Handshake, SendResponse};
-use http::{self, Request, Response};
+use http::{Request, Response};
 use tokio_io::{AsyncRead, AsyncWrite};
 
 use std::{error, fmt, mem};
@@ -16,7 +16,7 @@ use std::marker::PhantomData;
 
 /// Attaches service implementations to h2 connections.
 pub struct Server<S, E, B>
-where S: NewService,
+where S: NewService<Request<RecvBody>>,
       B: Body,
 {
     new_service: S,
@@ -28,7 +28,7 @@ where S: NewService,
 /// Drives connection-level I/O .
 pub struct Connection<T, S, E, B, F>
 where T: AsyncRead + AsyncWrite,
-      S: NewService,
+      S: NewService<Request<RecvBody>>,
       B: Body,
 {
     state: State<T, S, B>,
@@ -44,7 +44,7 @@ pub trait Modify {
 
 enum State<T, S, B>
 where T: AsyncRead + AsyncWrite,
-      S: NewService,
+      S: NewService<Request<RecvBody>>,
       B: Body,
 {
     /// Establish the HTTP/2.0 connection and get a service to process inbound
@@ -94,7 +94,7 @@ where B: Body,
 
 /// Error produced by a `Connection`.
 pub enum Error<S>
-where S: NewService,
+where S: NewService<Request<RecvBody>>,
 {
     /// Error produced during the HTTP/2.0 handshake.
     Handshake(h2::Error),
@@ -120,7 +120,7 @@ enum PollMain {
 // ===== impl Server =====
 
 impl<S, E, B> Server<S, E, B>
-where S: NewService<Request = Request<RecvBody>, Response = Response<B>>,
+where S: NewService<Request<RecvBody>, Response = Response<B>>,
       B: Body,
 {
     pub fn new(new_service: S, builder: h2::server::Builder, executor: E) -> Self {
@@ -135,7 +135,7 @@ where S: NewService<Request = Request<RecvBody>, Response = Response<B>>,
 
 
 impl<S, E, B> Server<S, E, B>
-where S: NewService<Request = http::Request<RecvBody>, Response = Response<B>>,
+where S: NewService<Request<RecvBody>, Response = Response<B>>,
       B: Body,
       E: Clone,
 {
@@ -172,7 +172,7 @@ where S: NewService<Request = http::Request<RecvBody>, Response = Response<B>>,
 // B doesn't need to be Clone, it's just a marker type.
 impl<S, E, B> Clone for Server<S, E, B>
 where
-    S: NewService + Clone,
+    S: NewService<Request<RecvBody>> + Clone,
     E: Clone,
     B: Body,
 {
@@ -190,8 +190,8 @@ where
 
 impl<T, S, E, B, F> Future for Connection<T, S, E, B, F>
 where T: AsyncRead + AsyncWrite,
-      S: NewService<Request = http::Request<RecvBody>, Response = Response<B>>,
-      E: Executor<Background<<S::Service as Service>::Future, B>>,
+      S: NewService<Request<RecvBody>, Response = Response<B>>,
+      E: Executor<Background<<S::Service as Service<Request<RecvBody>>>::Future, B>>,
       B: Body + 'static,
       F: Modify,
 {
@@ -210,8 +210,8 @@ where T: AsyncRead + AsyncWrite,
 
 impl<T, S, E, B, F> Connection<T, S, E, B, F>
 where T: AsyncRead + AsyncWrite,
-      S: NewService<Request = http::Request<RecvBody>, Response = Response<B>>,
-      E: Executor<Background<<S::Service as Service>::Future, B>>,
+      S: NewService<Request<RecvBody>, Response = Response<B>>,
+      E: Executor<Background<<S::Service as Service<Request<RecvBody>>>::Future, B>>,
       B: Body + 'static,
       F: Modify,
 {
@@ -467,7 +467,7 @@ where T: Future<Item = Response<B>>,
 // ===== impl Error =====
 
 impl<S> Error<S>
-where S: NewService,
+where S: NewService<Request<RecvBody>>,
 {
     fn from_init(err: Either<h2::Error, S::InitError>) -> Self {
         match err {
@@ -479,7 +479,7 @@ where S: NewService,
 
 impl<S> fmt::Debug for Error<S>
 where
-    S: NewService,
+    S: NewService<Request<RecvBody>>,
     S::InitError: fmt::Debug,
     S::Error: fmt::Debug,
 {
@@ -504,7 +504,7 @@ where
 
 impl<S> fmt::Display for Error<S>
 where
-    S: NewService,
+    S: NewService<Request<RecvBody>>,
     S::InitError: fmt::Display,
     S::Error: fmt::Display,
 {
@@ -526,7 +526,7 @@ where
 
 impl<S> error::Error for Error<S>
 where
-    S: NewService,
+    S: NewService<Request<RecvBody>>,
     S::InitError: error::Error,
     S::Error: error::Error,
 {

@@ -51,8 +51,7 @@ const ROOT: &'static str = "/";
 
 #[derive(Debug)]
 struct Svc;
-impl Service for Svc {
-    type Request = Request<RecvBody>;
+impl Service<Request<RecvBody>> for Svc {
     type Response = Response;
     type Error = h2::Error;
     type Future = future::FutureResult<Response, Self::Error>;
@@ -61,7 +60,7 @@ impl Service for Svc {
         Ok(Async::Ready(()))
     }
 
-    fn call(&mut self, req: Self::Request) -> Self::Future {
+    fn call(&mut self, req: Request<RecvBody>) -> Self::Future {
         let mut rsp = http::Response::builder();
         rsp.version(http::Version::HTTP_2);
 
@@ -80,8 +79,7 @@ impl Service for Svc {
 
 #[derive(Debug)]
 struct NewSvc;
-impl NewService for NewSvc {
-    type Request = Request<RecvBody>;
+impl NewService<Request<RecvBody>> for NewSvc {
     type Response = Response;
     type Error = h2::Error;
     type InitError = ::std::io::Error;
