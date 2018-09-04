@@ -81,10 +81,11 @@ where T: Service<Request<B1>,
     }
 }
 
-impl<T, B> ::sealed::GenericSealed1<B> for T
+impl<T, B1, B2> ::sealed::GenericSealed1<B1> for T
 where
-    T: Service<Request<B>>,
-    B: Body,
+    T: Service<Request<B1>, Response = Response<B2>>,
+    B1: Body,
+    B2: Body,
 {}
 
 impl<T, B> Service<Request<B>> for LiftService<T>
@@ -105,7 +106,8 @@ where
     }
 }
 
-impl<'a, T, B> Service<Request<B>> for LiftServiceRef<'a, T>where
+impl<'a, T, B> Service<Request<B>> for LiftServiceRef<'a, T>
+where
     T: HttpService<B>,
     B: Body,
 {
