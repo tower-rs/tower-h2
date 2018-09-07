@@ -167,7 +167,8 @@ where S: Body,
     type Error = ();
 
     fn poll(&mut self) -> Poll<(), ()> {
-        // TODO: Do something with the error
-        self.poll_complete().map_err(|_| ())
+        self.poll_complete().map_err(|err| {
+            warn!("error flushing stream: {:?}", err)
+        })
     }
 }

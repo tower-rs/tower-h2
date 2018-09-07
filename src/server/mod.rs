@@ -450,8 +450,8 @@ where T: Future<Item = Response<B>>,
                             // Transition to flushing the body
                             Flush::new(body, stream)
                         }
-                        Err(_) => {
-                            // TODO: Do something with the error?
+                        Err(err) => {
+                            warn!("error sending response: {:?}", err);
                             return Ok(().into());
                         }
                     }
