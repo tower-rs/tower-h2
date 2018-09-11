@@ -11,6 +11,7 @@ h2 = "0.1.11"
 h2-support = { git = "https://github.com/carllerche/h2" }
 http = "0.1.5"
 tokio = "0.1.7"
+tokio-connect = { git = "https://github.com/carllerche/tokio-connect" }
 tower-h2 = { path = ".." }
 tower-service = { git = "https://github.com/tower-rs/tower" }
 tower-util = { git = "https://github.com/tower-rs/tower" }
