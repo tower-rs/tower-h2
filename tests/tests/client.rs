@@ -74,3 +74,135 @@ fn hello() {
         .block_on(done)
         .unwrap();
 }
+
+#[test]
+fn hello_req_body() {
+    let _ = ::env_logger::try_init();
+
+    let (io, srv) = mock::new();
+
+    let srv = srv
+        .assert_client_handshake()
+        .unwrap()
+        .recv_settings()
+        .recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+        )
+        .recv_frame(frames::data(1, "hello world"))
+        .send_frame(frames::headers(1).response(200).eos())
+        .close();
+
+    let conn = MockConn::new(io);
+    let h2 = Connect::new(conn, Default::default(), TaskExecutor::current());
+
+    let done = h2.new_service()
+        .map_err(|e| panic!("connect err: {:?}", e))
+        .and_then(|mut h2| {
+            h2.call(http::Request::builder()
+                .method("GET")
+                .uri("https://example.com/")
+                .body(SendBody::new("hello world"))
+                .unwrap())
+        })
+        .map(|rsp| {
+            assert_eq!(rsp.status(), http::StatusCode::OK);
+        })
+        .map_err(|e| panic!("error: {:?}", e));
+
+    CurrentThread::new()
+        .spawn(srv)
+        .block_on(done)
+        .unwrap();
+}
+
+#[test]
+fn hello_rsp_body() {
+    let _ = ::env_logger::try_init();
+
+    let (io, srv) = mock::new();
+
+    let srv = srv
+        .assert_client_handshake()
+        .unwrap()
+        .recv_settings()
+        .recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos()
+        )
+        .send_frame(frames::headers(1).response(200))
+        .send_frame(frames::data(1, "hello world").eos())
+        .close();
+
+    let conn = MockConn::new(io);
+    let h2 = Connect::new(conn, Default::default(), TaskExecutor::current());
+
+    let done = h2.new_service()
+        .map_err(|e| panic!("connect err: {:?}", e))
+        .and_then(|mut h2| {
+            h2.call(http::Request::builder()
+                .method("GET")
+                .uri("https://example.com/")
+                .body(())
+                .unwrap())
+        })
+        .and_then(|rsp| {
+            assert_eq!(rsp.status(), http::StatusCode::OK);
+            let (_, body) = rsp.into_parts();
+            read_recv_body(body).from_err()
+        })
+        .map(|body| assert_eq!(body, Some("hello world".into())))
+        .map_err(|e| panic!("error: {:?}", e));
+
+    CurrentThread::new()
+        .spawn(srv)
+        .block_on(done)
+        .unwrap();
+}
+
+#[test]
+fn hello_bodies() {
+    let _ = ::env_logger::try_init();
+
+    let (io, srv) = mock::new();
+
+    let srv = srv
+        .assert_client_handshake()
+        .unwrap()
+        .recv_settings()
+        .recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+        )
+        .recv_frame(frames::data(1, "hello world"))
+        .send_frame(frames::headers(1).response(200))
+        .send_frame(frames::data(1, "hello"))
+        .send_frame(frames::data(1, " back!").eos())
+        .close();
+
+    let conn = MockConn::new(io);
+    let h2 = Connect::new(conn, Default::default(), TaskExecutor::current());
+
+    let done = h2.new_service()
+        .map_err(|e| panic!("connect err: {:?}", e))
+        .and_then(|mut h2| {
+            h2.call(http::Request::builder()
+                .method("GET")
+                .uri("https://example.com/")
+                .body(SendBody::new("hello world"))
+                .unwrap())
+        })
+        .and_then(|rsp| {
+            assert_eq!(rsp.status(), http::StatusCode::OK);
+            let (_, body) = rsp.into_parts();
+            read_recv_body(body).from_err()
+        })
+        .map(|body| assert_eq!(body, Some("hello back!".into())))
+        .map_err(|e| panic!("error: {:?}", e));
+
+    CurrentThread::new()
+        .spawn(srv)
+        .block_on(done)
+        .unwrap();
+}

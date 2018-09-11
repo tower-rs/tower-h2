@@ -24,19 +24,19 @@ macro_rules! try_ready {
     })
 }
 
-pub struct RspBody(Option<Bytes>);
+pub struct SendBody(Option<Bytes>);
 
-impl RspBody {
-    pub fn new(body: Bytes) -> Self {
-        RspBody(Some(body))
+impl SendBody {
+    pub fn new<I: Into<Bytes>>(body: I) -> Self {
+        SendBody(Some(body.into()))
     }
 
     pub fn empty() -> Self {
-        RspBody(None)
+        SendBody(None)
     }
 }
 
-impl Body for RspBody {
+impl Body for SendBody {
     type Data = Bytes;
 
     fn is_end_stream(&self) -> bool {

@@ -147,7 +147,7 @@ fn hello_bodies() {
 
                     let response = http::Response::builder()
                         .status(200)
-                        .body(RspBody::new("hello back".into()))
+                        .body(SendBody::new("hello back"))
                         .unwrap();
                     Ok(response)
                 })
@@ -184,7 +184,7 @@ fn hello_rsp_body() {
         SyncServiceFn::new(|_req| {
             let response = http::Response::builder()
                 .status(200)
-                .body(RspBody::new("hello back".into()))
+                .body(SendBody::new("hello back"))
                 .unwrap();
 
             Ok::<_, ()>(response.into())
