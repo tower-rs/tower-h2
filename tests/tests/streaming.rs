@@ -1,4 +1,5 @@
 extern crate bytes;
+#[macro_use]
 extern crate futures;
 extern crate h2;
 extern crate h2_support;
@@ -8,11 +9,68 @@ extern crate tower_h2;
 extern crate tower_service;
 extern crate tower_util;
 
-use bytes::Bytes;
+use bytes::{Bytes, Buf};
 use h2_support::prelude::*;
 use tokio::executor::current_thread::*;
-use tower_h2::Body;
+use tower_h2::{Body, RecvBody};
 use tower_h2::server::Server;
+use futures::{Poll, Async};
+
+pub struct RspBody(Option<Bytes>);
+
+impl RspBody {
+    pub fn new(body: Bytes) -> Self {
+        RspBody(Some(body))
+    }
+
+    pub fn empty() -> Self {
+        RspBody(None)
+    }
+}
+
+impl Body for RspBody {
+    type Data = Bytes;
+
+    fn is_end_stream(&self) -> bool {
+        self.0.as_ref().map(|b| b.is_empty()).unwrap_or(false)
+    }
+
+    fn poll_data(&mut self) -> Poll<Option<Bytes>, h2::Error> {
+        let data = self.0
+            .take()
+            .and_then(|b| if b.is_empty() { None } else { Some(b) });
+        Ok(Async::Ready(data))
+    }
+}
+
+
+pub fn read_recv_body(body: RecvBody) -> ReadRecvBody {
+    ReadRecvBody {
+        body,
+        bytes: None,
+    }
+}
+pub struct ReadRecvBody {
+    body: RecvBody,
+    bytes: Option<Box<Buf>>,
+}
+
+impl Future for ReadRecvBody {
+    type Item = Option<Bytes>;
+    type Error = h2::Error;
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        loop {
+            self.bytes = match try_ready!(self.body.poll_data()) {
+                None => return Ok(Async::Ready(self.bytes.take().map(Buf::collect))),
+                Some(b) => if self.bytes.as_ref().is_none() {
+                    Some(Box::new(b))
+                } else {
+                    Some(Box::new(self.bytes.take().unwrap().chain(b)))
+                },
+            }
+        }
+    }
+}
 
 mod extract {
     use futures::{Async, Poll, IntoFuture};
@@ -114,6 +172,128 @@ fn hello() {
                 .unwrap();
 
             Ok::<_, ()>(response.into())
+        }),
+        Default::default(), TaskExecutor::current());
+
+    CurrentThread::new()
+        .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
+        .block_on(client)
+        .unwrap();
+}
+
+#[test]
+fn hello_bodies() {
+    let _ = ::env_logger::try_init();
+
+    let (io, client) = mock::new();
+
+    let client = client
+        .assert_server_handshake()
+        .unwrap()
+        .recv_settings()
+        .send_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+        )
+        .send_frame(
+            frames::data(1, "hello world").eos()
+        )
+        .recv_frame(frames::headers(1).response(200))
+
+        .recv_frame(frames::data(1, "hello back"))
+        .close();
+
+    let h2 = Server::new(
+        SyncServiceFn::new(|request: http::Request<tower_h2::RecvBody>| {
+            let (_, body) = request.into_parts();
+            read_recv_body(body)
+                .and_then(|body| {
+                    assert_eq!(body, Some("hello world".into()));
+
+                    let response = http::Response::builder()
+                        .status(200)
+                        .body(RspBody::new("hello back".into()))
+                        .unwrap();
+                    Ok(response)
+                })
+        }),
+        Default::default(), TaskExecutor::current());
+
+    CurrentThread::new()
+        .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
+        .block_on(client)
+        .unwrap();
+}
+
+
+#[test]
+fn hello_rsp_body() {
+    let _ = ::env_logger::try_init();
+
+    let (io, client) = mock::new();
+
+    let client = client
+        .assert_server_handshake()
+        .unwrap()
+        .recv_settings()
+        .send_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos()
+        )
+        .recv_frame(frames::headers(1).response(200))
+        .recv_frame(frames::data(1, "hello back"))
+        .close();
+
+    let h2 = Server::new(
+        SyncServiceFn::new(|_req| {
+            let response = http::Response::builder()
+                .status(200)
+                .body(RspBody::new("hello back".into()))
+                .unwrap();
+
+            Ok::<_, ()>(response.into())
+        }),
+        Default::default(), TaskExecutor::current());
+
+    CurrentThread::new()
+        .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
+        .block_on(client)
+        .unwrap();
+}
+
+#[test]
+fn hello_req_body() {
+    let _ = ::env_logger::try_init();
+
+    let (io, client) = mock::new();
+
+    let client = client
+        .assert_server_handshake()
+        .unwrap()
+        .recv_settings()
+        .send_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+        )
+        .send_frame(frames::data(1, "hello "))
+        .send_frame(frames::data(1, "world").eos())
+        .recv_frame(frames::headers(1).response(200).eos())
+        .close();
+
+    let h2 = Server::new(
+        SyncServiceFn::new(|request: http::Request<tower_h2::RecvBody>| {
+            let (_, body) = request.into_parts();
+            read_recv_body(body)
+                .and_then(|body| {
+                    assert_eq!(body, Some("hello world".into()));
+
+                    let response = http::Response::builder()
+                        .status(200)
+                        .body(())
+                        .unwrap();
+                    Ok(response)
+                })
         }),
         Default::default(), TaskExecutor::current());
 
