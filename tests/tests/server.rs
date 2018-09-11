@@ -1,77 +1,12 @@
-extern crate bytes;
-#[macro_use]
-extern crate futures;
-extern crate h2;
-extern crate h2_support;
-extern crate http;
-extern crate tokio;
-extern crate tower_h2;
-extern crate tower_service;
-extern crate tower_util;
+use self::support::*;
 
-use bytes::{Bytes, Buf};
+use bytes::Bytes;
 use h2_support::prelude::*;
 use tokio::executor::current_thread::*;
-use tower_h2::{Body, RecvBody};
+use tower_h2::Body;
 use tower_h2::server::Server;
-use futures::{Poll, Async};
 
-pub struct RspBody(Option<Bytes>);
-
-impl RspBody {
-    pub fn new(body: Bytes) -> Self {
-        RspBody(Some(body))
-    }
-
-    pub fn empty() -> Self {
-        RspBody(None)
-    }
-}
-
-impl Body for RspBody {
-    type Data = Bytes;
-
-    fn is_end_stream(&self) -> bool {
-        self.0.as_ref().map(|b| b.is_empty()).unwrap_or(false)
-    }
-
-    fn poll_data(&mut self) -> Poll<Option<Bytes>, h2::Error> {
-        let data = self.0
-            .take()
-            .and_then(|b| if b.is_empty() { None } else { Some(b) });
-        Ok(Async::Ready(data))
-    }
-}
-
-
-pub fn read_recv_body(body: RecvBody) -> ReadRecvBody {
-    ReadRecvBody {
-        body,
-        bytes: None,
-    }
-}
-pub struct ReadRecvBody {
-    body: RecvBody,
-    bytes: Option<Box<Buf>>,
-}
-
-impl Future for ReadRecvBody {
-    type Item = Option<Bytes>;
-    type Error = h2::Error;
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        loop {
-            self.bytes = match try_ready!(self.body.poll_data()) {
-                None => return Ok(Async::Ready(self.bytes.take().map(Buf::collect))),
-                Some(b) => if self.bytes.as_ref().is_none() {
-                    Some(Box::new(b))
-                } else {
-                    Some(Box::new(self.bytes.take().unwrap().chain(b)))
-                },
-            }
-        }
-    }
-}
-
+mod support;
 mod extract {
     use futures::{Async, Poll, IntoFuture};
     use futures::future::{self, FutureResult};
@@ -334,7 +269,7 @@ fn respects_flow_control_eos_signal() {
             self.cnt.get() == 5
         }
 
-        fn poll_data(&mut self) -> Poll<Option<Self::Data>, h2::Error> {
+        fn poll_data(&mut self) -> Poll<Option<Self::Data>, support::h2::Error> {
             let cnt = self.cnt.get();
 
             if cnt == 5 {
@@ -424,7 +359,7 @@ fn respects_flow_control_no_eos_signal() {
     impl Body for Zeros {
         type Data = Bytes;
 
-        fn poll_data(&mut self) -> Poll<Option<Self::Data>, h2::Error> {
+        fn poll_data(&mut self) -> Poll<Option<Self::Data>, support::h2::Error> {
             let cnt = self.cnt.get();
 
             if cnt == 5 {
@@ -528,7 +463,7 @@ fn flushing_body_cancels_if_reset() {
             false
         }
 
-        fn poll_data(&mut self) -> Poll<Option<Self::Data>, h2::Error> {
+        fn poll_data(&mut self) -> Poll<Option<Self::Data>, support::h2::Error> {
             if self.cnt == 1 {
                 Ok(Async::NotReady)
             } else {
