@@ -5,6 +5,7 @@ use h2_support::{mock::Mock, prelude::*};
 use tokio::runtime::current_thread::Runtime;
 use tokio_current_thread::TaskExecutor;
 use tower_h2::client::Connect;
+use tower_h2::Body;
 
 use tower_service::{NewService, Service};
 use futures::future::{self, FutureResult};
@@ -204,5 +205,210 @@ fn hello_bodies() {
     Runtime::new()
         .unwrap()
         .block_on(done.join(srv))
+        .unwrap();
+}
+
+#[test]
+fn respects_flow_control_eos_signal() {
+    use futures::Poll;
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    let _ = ::env_logger::try_init();
+
+    struct Zeros {
+        buf: Bytes,
+        cnt: Rc<Cell<usize>>,
+    }
+
+    impl Zeros {
+        fn new(cnt: Rc<Cell<usize>>) -> Zeros {
+            let buf = vec![0; 16_384].into();
+
+            Zeros {
+                buf,
+                cnt,
+            }
+        }
+    }
+
+    impl Body for Zeros {
+        type Data = Bytes;
+
+        fn is_end_stream(&self) -> bool {
+            self.cnt.get() == 5
+        }
+
+        fn poll_data(&mut self) -> Poll<Option<Self::Data>, support::h2::Error> {
+            let cnt = self.cnt.get();
+
+            if cnt == 5 {
+                panic!("the library should not have called this");
+            } else {
+                self.cnt.set(cnt + 1);
+                Ok(Some(self.buf.clone()).into())
+            }
+        }
+    }
+
+    let (io, srv) = mock::new();
+    let frame = vec![0; 16_384];
+    let cnt = Rc::new(Cell::new(0));
+    let cnt2 = cnt.clone();
+
+    let srv = srv
+        .assert_client_handshake()
+        .unwrap()
+        .recv_settings()
+        .recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+        )
+        .recv_frame(frames::data(1, &frame[..]))
+        .recv_frame(frames::data(1, &frame[..]))
+        .recv_frame(frames::data(1, &frame[..]))
+        .recv_frame(frames::data(1, &frame[..16383]))
+        .idle_ms(100)
+        .and_then(move |v| {
+            assert_eq!(4, cnt2.get());
+            Ok(v)
+        })
+        .send_frame(
+            frames::window_update(0, 1_000_000)
+        )
+        .send_frame(
+            frames::window_update(1, 1_000_000)
+        )
+        .recv_frame(frames::data(1, &frame[..1]))
+        .recv_frame(frames::data(1, &frame[..]).eos())
+        .send_frame(
+            frames::headers(1)
+                .response(200)
+                .eos()
+        )
+        .close();
+
+    let conn = MockConn::new(io);
+    let h2 = Connect::new(conn, Default::default(), TaskExecutor::current());
+
+    let done = h2.new_service()
+        .map_err(|e| panic!("connect err: {:?}", e))
+        .and_then(|mut h2| {
+            h2.call(http::Request::builder()
+                .method("GET")
+                .uri("https://example.com/")
+                .body(Zeros::new(cnt.clone()))
+                .unwrap())
+        })
+       .map(|rsp| {
+            assert_eq!(rsp.status(), http::StatusCode::OK);
+        })
+        .map_err(|e| panic!("error: {:?}", e));
+
+    CurrentThread::new()
+        .spawn(srv)
+        .block_on(done)
+        .unwrap();
+}
+
+
+#[test]
+fn respects_flow_control_no_eos_signal() {
+    use futures::Poll;
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    let _ = ::env_logger::try_init();
+
+    struct Zeros {
+        buf: Bytes,
+        cnt: Rc<Cell<usize>>,
+    }
+
+    impl Zeros {
+        fn new(cnt: Rc<Cell<usize>>) -> Zeros {
+            let buf = vec![0; 16_384].into();
+
+            Zeros {
+                buf,
+                cnt,
+            }
+        }
+    }
+
+    impl Body for Zeros {
+        type Data = Bytes;
+
+        fn poll_data(&mut self) -> Poll<Option<Self::Data>, support::h2::Error> {
+            let cnt = self.cnt.get();
+
+            if cnt == 5 {
+                Ok(None.into())
+            } else {
+                self.cnt.set(cnt + 1);
+                Ok(Some(self.buf.clone()).into())
+            }
+        }
+    }
+
+    let (io, srv) = mock::new();
+    let frame = vec![0; 16_384];
+    let cnt = Rc::new(Cell::new(0));
+    let cnt2 = cnt.clone();
+
+    let srv = srv
+        .assert_client_handshake()
+        .unwrap()
+        .recv_settings()
+        .recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+        )
+        .recv_frame(frames::data(1, &frame[..]))
+        .recv_frame(frames::data(1, &frame[..]))
+        .recv_frame(frames::data(1, &frame[..]))
+        .recv_frame(frames::data(1, &frame[..16383]))
+        .idle_ms(100)
+        .and_then(move |v| {
+            assert_eq!(4, cnt2.get());
+            Ok(v)
+        })
+        .send_frame(
+            frames::window_update(0, 1_000_000)
+        )
+        .send_frame(
+            frames::window_update(1, 1_000_000)
+        )
+        .recv_frame(frames::data(1, &frame[..1]))
+        .recv_frame(frames::data(1, &frame[..]))
+        .recv_frame(frames::data(1, &b""[..]).eos())
+        .send_frame(
+            frames::headers(1)
+                .response(200)
+                .eos()
+        )
+        .close();
+
+
+    let conn = MockConn::new(io);
+    let h2 = Connect::new(conn, Default::default(), TaskExecutor::current());
+
+    let done = h2.new_service()
+        .map_err(|e| panic!("connect err: {:?}", e))
+        .and_then(|mut h2| {
+            h2.call(http::Request::builder()
+                .method("GET")
+                .uri("https://example.com/")
+                .body(Zeros::new(cnt.clone()))
+                .unwrap())
+        })
+       .map(|rsp| {
+            assert_eq!(rsp.status(), http::StatusCode::OK);
+        })
+        .map_err(|e| panic!("error: {:?}", e));
+
+    CurrentThread::new()
+        .spawn(srv)
+        .block_on(done)
         .unwrap();
 }
