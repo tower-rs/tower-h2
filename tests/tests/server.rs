@@ -4,7 +4,7 @@ use bytes::Bytes;
 use h2_support::prelude::*;
 use tokio::runtime::current_thread::Runtime;
 use tokio_current_thread::TaskExecutor;
-use tower_h2::Body;
+use tower_h2::{BoxBody, Body};
 use tower_h2::server::Server;
 
 mod support;
@@ -198,6 +198,43 @@ fn hello_rsp_body() {
     Runtime::new()
         .unwrap()
         .block_on(f)
+        .unwrap();
+}
+
+#[test]
+fn hello_box_body() {
+    let _ = ::env_logger::try_init();
+
+    let (io, client) = mock::new();
+
+    let client = client
+        .assert_server_handshake()
+        .unwrap()
+        .recv_settings()
+        .send_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos()
+        )
+        .recv_frame(frames::headers(1).response(200))
+        .recv_frame(frames::data(1, "hello back"))
+        .close();
+
+    let h2 = Server::new(
+        SyncServiceFn::new(|_req| {
+            let response = http::Response::builder()
+                .status(200)
+                .body(BoxBody::new(Box::new(SendBody::new("hello back"))))
+                .unwrap();
+
+            Ok::<_, ()>(response.into())
+        }),
+        Default::default(), TaskExecutor::current());
+
+    Runtime::new()
+        .unwrap()
+        .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
+        .block_on(client)
         .unwrap();
 }
 
