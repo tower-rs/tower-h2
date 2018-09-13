@@ -202,6 +202,45 @@ fn hello_rsp_body() {
         .unwrap();
 }
 
+
+#[test]
+fn hello_rsp_body_trailers() {
+    let _ = ::env_logger::try_init();
+
+    let (io, client) = mock::new();
+
+    let client = client
+        .assert_server_handshake()
+        .unwrap()
+        .recv_settings()
+        .send_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos()
+        )
+        .recv_frame(frames::headers(1).response(200))
+        .recv_frame(frames::data(1, "hello back"))
+        .recv_frame(frames::headers(1).eos())
+        .close();
+
+    let h2 = Server::new(
+        SyncServiceFn::new(|_req| {
+            let response = http::Response::builder()
+                .status(200)
+                .body(SendBody::new("hello back")
+                    .with_trailers(http::HeaderMap::new()))
+                .unwrap();
+
+            Ok::<_, ()>(response.into())
+        }),
+        Default::default(), TaskExecutor::current());
+
+    CurrentThread::new()
+        .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
+        .block_on(client)
+        .unwrap();
+}
+
 #[test]
 fn hello_box_body() {
     let _ = ::env_logger::try_init();
@@ -218,7 +257,7 @@ fn hello_box_body() {
                 .eos()
         )
         .recv_frame(frames::headers(1).response(200))
-        .recv_frame(frames::data(1, "hello back"))
+        .recv_frame(frames::data(1, "hello back").eos())
         .close();
 
     let h2 = Server::new(
@@ -591,6 +630,36 @@ fn response_error_resets() {
 
     CurrentThread::new()
         .spawn(h2.serve(io).map_err(|_|()))
+        .block_on(client)
+        .unwrap();
+}
+
+
+#[test]
+fn client_resets() {
+    let _ = ::env_logger::try_init();
+
+    let (io, client) = mock::new();
+
+    let client = client
+        .assert_server_handshake()
+        .unwrap()
+        .recv_settings()
+        .send_frame(frames::reset(1).cancel())
+        .close();
+
+    let h2 = Server::new(SyncServiceFn::new(move |_request| {
+        let response = http::Response::builder()
+            .status(200)
+            .body(SendBody::new("foo"))
+            .unwrap();
+
+        Ok::<_, ()>(response.into())
+    }),
+    Default::default(), TaskExecutor::current());
+
+    CurrentThread::new()
+        .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
         .block_on(client)
         .unwrap();
 }
