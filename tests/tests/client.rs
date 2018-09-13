@@ -1,37 +1,54 @@
 use self::support::*;
 extern crate tokio_connect;
 
-use h2_support::{mock::Mock, prelude::*};
+use h2_support::prelude::*;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::runtime::current_thread::Runtime;
 use tokio_current_thread::TaskExecutor;
+
 use tower_h2::client::Connect;
 use tower_h2::Body;
 
 use tower_service::{NewService, Service};
 use futures::future::{self, FutureResult};
-use std::cell::RefCell;
+use std::{
+    cell::RefCell,
+    io,
+};
 
 mod support;
 
-struct MockConn {
-    conn: RefCell<Option<Mock>>,
+struct MockConn<T, E> {
+    conn: RefCell<Option<Result<T, E>>>,
 }
 
-impl MockConn {
-    fn new(mock: Mock) -> Self {
+impl<T> MockConn<T, io::Error> {
+    fn new(mock: T) -> Self {
         MockConn {
-            conn: RefCell::new(Some(mock))
+            conn: RefCell::new(Some(Ok(mock)))
         }
     }
 }
 
-impl tokio_connect::Connect for MockConn {
-    type Connected = Mock;
-    type Error = ::std::io::Error;
-    type Future = FutureResult<Mock, ::std::io::Error>;
+impl<E> MockConn<h2_support::mock::Mock, E> {
+    fn error(error: E) -> Self {
+        MockConn {
+            conn: RefCell::new(Some(Err(error)))
+        }
+    }
+}
+
+impl<T: AsyncRead + AsyncWrite, E> tokio_connect::Connect for MockConn<T, E> {
+    type Connected = T;
+    type Error = E;
+    type Future = FutureResult<Self::Connected, Self::Error>;
 
     fn connect(&self) -> Self::Future {
-        future::ok(self.conn.borrow_mut().take().expect("connected more than once!"))
+        let result = self.conn
+            .borrow_mut()
+            .take()
+            .expect("connected more than once!");
+        future::result(result)
     }
 }
 
@@ -305,7 +322,7 @@ fn respects_flow_control_eos_signal() {
         })
         .map_err(|e| panic!("error: {:?}", e));
 
-    CurrentThread::new()
+    Runtime::new().unwrap()
         .spawn(srv)
         .block_on(done)
         .unwrap();
@@ -407,8 +424,35 @@ fn respects_flow_control_no_eos_signal() {
         })
         .map_err(|e| panic!("error: {:?}", e));
 
-    CurrentThread::new()
+    Runtime::new().unwrap()
         .spawn(srv)
         .block_on(done)
         .unwrap();
+}
+
+#[test]
+fn connect_error() {
+    let _ = ::env_logger::try_init();
+    let conn = MockConn::error(io::Error::from(io::ErrorKind::Other));
+    let h2 = Connect::new(conn, Default::default(), TaskExecutor::current());
+
+    let done = h2.new_service()
+        .map_err(|e| {
+            assert_eq!(
+                format!("{}", e),
+                "Error attempting to establish underlying session layer: other os error".to_string()
+            );
+        })
+        .map(|mut h2| {
+            let _ = h2.call(http::Request::builder()
+                .method("GET")
+                .uri("https://example.com/")
+                .body(())
+                .unwrap());
+            panic!("got a connection that should have errored!");
+        });
+
+    Runtime::new().unwrap()
+        .block_on(done)
+        .unwrap_err();
 }
