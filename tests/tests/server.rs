@@ -6,6 +6,7 @@ use tokio::runtime::current_thread::Runtime;
 use tokio_current_thread::TaskExecutor;
 use tower_h2::{BoxBody, Body};
 use tower_h2::server::Server;
+use std::io;
 
 mod support;
 mod extract {
@@ -559,4 +560,37 @@ fn flushing_body_cancels_if_reset() {
     // The flush future should have finished, since it was reset. If so,
     // it will have dropped once.
     assert_eq!(dropped.get(), 1);
+}
+
+
+#[test]
+fn response_error_resets() {
+    use h2_support::h2::frame::{Reset, Reason};
+
+    let _ = ::env_logger::try_init();
+
+    let (io, client) = mock::new();
+
+    let client = client
+        .assert_server_handshake()
+        .unwrap()
+        .recv_settings()
+        .send_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .recv_frame(frames::reset(1).internal_error())
+        .close();
+
+    let h2 = Server::<_, _, ()>::new(
+        SyncServiceFn::new(|_request| {
+            Err(io::Error::new(io::ErrorKind::Other, "lol i die"))
+        }),
+        Default::default(), TaskExecutor::current());
+
+    CurrentThread::new()
+        .spawn(h2.serve(io).map_err(|_|()))
+        .block_on(client)
+        .unwrap();
 }

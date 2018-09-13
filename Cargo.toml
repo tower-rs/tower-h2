@@ -30,3 +30,6 @@ tower-service = { git = "https://github.com/tower-rs/tower" }
 env_logger = { version = "^0.5", default-features = false }
 string = { git = "https://github.com/carllerche/string" }
 tokio = "0.1"
+
+[patch.crates-io]
+h2 = { git = "https://github.com/carllerche/h2.git", branch = "eliza/test-support-reset" }

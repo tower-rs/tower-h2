@@ -8,7 +8,7 @@ publish = false
 bytes = "0.4.7"
 futures = "0.1.21"
 h2 = "0.1.11"
-h2-support = { git = "https://github.com/carllerche/h2" }
+h2-support = { git = "https://github.com/carllerche/h2.git", branch = "eliza/test-support-reset" }
 http = "0.1.5"
 tokio = "0.1.8"
 tokio-current-thread = "0.1.1"
