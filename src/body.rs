@@ -128,3 +128,85 @@ impl<T: fmt::Debug> fmt::Debug for UnsyncBoxBody<T> {
             .finish()
     }
 }
+
+mod test {
+    use super::*;
+    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+
+    struct MockBody {
+        is_end_stream: bool,
+        is_end_stream_calls: AtomicUsize,
+        poll_data_calls: AtomicUsize,
+        poll_trailers_calls: AtomicUsize,
+    }
+
+    impl MockBody {
+        fn new() -> Self {
+            Self {
+                is_end_stream: false,
+                is_end_stream_calls: AtomicUsize::new(0),
+                poll_data_calls: AtomicUsize::new(0),
+                poll_trailers_calls: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    impl Body for Arc<MockBody> {
+        type Data = &'static [u8];
+
+        fn is_end_stream(&self) -> bool {
+            self.is_end_stream_calls.fetch_add(1, Ordering::Relaxed);
+            self.is_end_stream
+        }
+
+        fn poll_data(&mut self) -> Poll<Option<Self::Data>, h2::Error> {
+            self.poll_data_calls.fetch_add(1, Ordering::Relaxed);
+            Ok(Async::Ready(None))
+        }
+
+        fn poll_trailers(&mut self) -> Poll<Option<HeaderMap>, h2::Error> {
+            self.poll_trailers_calls.fetch_add(1, Ordering::Relaxed);
+            Ok(Async::Ready(None))
+        }
+    }
+
+    #[test]
+    fn box_body_proxies_to_inner() {
+        let mock = Arc::new(MockBody::new());
+        let mut body = BoxBody::new(Box::new(mock.clone()));
+
+        assert_eq!(body.is_end_stream(), false);
+        assert_eq!(mock.is_end_stream_calls.load(Ordering::Relaxed), 1);
+
+        assert_eq!(body.poll_data().unwrap(), Async::Ready(None));
+        assert_eq!(mock.poll_data_calls.load(Ordering::Relaxed), 1);
+
+        assert_eq!(body.poll_trailers().unwrap(), Async::Ready(None));
+        assert_eq!(mock.poll_trailers_calls.load(Ordering::Relaxed), 1);
+    }
+
+
+    #[test]
+    fn unsync_box_body_proxies_to_inner() {
+        let mock = Arc::new(MockBody::new());
+        let mut body = UnsyncBoxBody::new(Box::new(mock.clone()));
+
+        assert_eq!(body.is_end_stream(), false);
+        assert_eq!(mock.is_end_stream_calls.load(Ordering::Relaxed), 1);
+
+        assert_eq!(body.poll_data().unwrap(), Async::Ready(None));
+        assert_eq!(mock.poll_data_calls.load(Ordering::Relaxed), 1);
+
+        assert_eq!(body.poll_trailers().unwrap(), Async::Ready(None));
+        assert_eq!(mock.poll_trailers_calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn unit_body() {
+        let mut body = ();
+
+        assert_eq!(body.is_end_stream(), true);
+        assert_eq!(body.poll_data().unwrap(), Async::Ready(None));
+        assert_eq!(body.poll_trailers().unwrap(), Async::Ready(None));
+    }
+}
