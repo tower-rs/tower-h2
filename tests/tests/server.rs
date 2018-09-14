@@ -358,6 +358,52 @@ fn hello_req_body() {
 }
 
 #[test]
+fn hello_req_trailers() {
+    const TRAILER_NAME: &'static str = "x-my-trailer";
+    const TRAILER_VALUE: &'static str = "foo";
+    let _ = ::env_logger::try_init();
+
+    let (io, client) = mock::new();
+
+    let client = client
+        .assert_server_handshake()
+        .unwrap()
+        .recv_settings()
+        .send_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+        )
+        .send_frame(frames::data(1, "hello "))
+        .send_frame(frames::data(1, "world"))
+        .send_frame(frames::headers(1).field(TRAILER_NAME, TRAILER_VALUE).eos())
+        .recv_frame(frames::headers(1).response(200).eos())
+        .close();
+
+    let h2 = Server::new(
+        SyncServiceFn::new(|request: http::Request<tower_h2::RecvBody>| {
+            let (_, body) = request.into_parts();
+            read_recv_body_and_trailers(body)
+                .and_then(|(body, trailers)| {
+                    let expected_value = http::header::HeaderValue::from_str(TRAILER_VALUE)
+                        .expect("header value should be valid");
+                    assert_eq!(body, Some("hello world".into()));
+                    assert_eq!(trailers.unwrap().get(TRAILER_NAME), Some(&expected_value));
+                    let response = http::Response::builder()
+                        .status(200)
+                        .body(())
+                        .unwrap();
+                    Ok(response)
+                })
+        }),
+        Default::default(), TaskExecutor::current());
+
+    CurrentThread::new()
+        .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
+        .block_on(client)
+        .unwrap();
+}
+
+#[test]
 fn respects_flow_control_eos_signal() {
     use futures::Poll;
     use std::cell::Cell;

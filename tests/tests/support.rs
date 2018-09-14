@@ -94,3 +94,43 @@ impl Future for ReadRecvBody {
         }
     }
 }
+
+pub fn read_recv_body_and_trailers(body: RecvBody) -> ReadRecvBodyAndTrailers  {
+    ReadRecvBodyAndTrailers {
+        body,
+        bytes: None,
+        is_reading_trailers: false,
+    }
+}
+pub struct ReadRecvBodyAndTrailers {
+    body: RecvBody,
+    bytes: Option<Box<Buf>>,
+    is_reading_trailers: bool,
+}
+
+impl Future for ReadRecvBodyAndTrailers {
+    type Item = (Option<Bytes>, Option<http::HeaderMap>);
+    type Error = self::h2::Error;
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        loop {
+            if self.is_reading_trailers {
+                let trailers = try_ready!(self.body.poll_trailers());
+                let body = self.bytes.take().map(Buf::collect);
+                return Ok(Async::Ready((body, trailers)));
+            }
+            match try_ready!(self.body.poll_data()) {
+                None => {
+                    self.is_reading_trailers = true;
+                },
+                Some(b) => {
+                    self.bytes = if self.bytes.as_ref().is_none() {
+                        Some(Box::new(b))
+                    } else {
+                        Some(Box::new(self.bytes.take().unwrap().chain(b)))
+                    };
+                },
+            }
+        }
+    }
+}
+
