@@ -663,3 +663,98 @@ fn client_resets() {
         .block_on(client)
         .unwrap();
 }
+
+
+#[test]
+fn graceful_shutdown() {
+    let _ = ::env_logger::try_init();
+    let (io, client) = mock::new();
+
+    let client = client
+        .assert_server_handshake()
+        .unwrap()
+        .recv_settings()
+        .send_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        // 2^31 - 1 = 2147483647
+        // Note: not using a constant in the library because library devs
+        // can be unsmart.
+        .recv_frame(frames::go_away(2147483647))
+        .recv_frame(frames::ping(frame::Ping::SHUTDOWN))
+        .recv_frame(frames::headers(1).response(200).eos())
+        // Pretend this stream was sent while the GOAWAY was in flight
+        .send_frame(
+            frames::headers(3)
+                .request("POST", "https://example.com/"),
+        )
+        .send_frame(frames::ping(frame::Ping::SHUTDOWN).pong())
+        .recv_frame(frames::go_away(3))
+        // streams sent after GOAWAY receive no response
+        .send_frame(
+            frames::headers(7)
+                .request("GET", "https://example.com/"),
+        )
+        .send_frame(frames::data(7, "").eos())
+        .send_frame(frames::data(3, "").eos())
+        .recv_frame(frames::headers(3).response(200).eos())
+        .close(); // TODO: should this recv_Eof first?
+
+    use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+
+    let done = Arc::new(AtomicBool::from(false));
+
+    struct GracefulShutdown<T, S, E, B>
+    where
+        T: AsyncRead + AsyncWrite,
+        S: tower_service::NewService,
+        B: Body,
+    {
+        conn: tower_h2::server::Connection<T, S, E, B, ()>,
+        done: Arc<AtomicBool>,
+        hasnt_shutdown: bool,
+    }
+
+    impl<T, S, E, B> Future for GracefulShutdown<T, S, E, B>
+    where
+        tower_h2::server::Connection<T, S, E, B, ()>: Future,
+        S: tower_service::NewService<Request = http::Request<tower_h2::RecvBody>, Response = http::Response<B>>,
+        E: futures::future::Executor<tower_h2::server::Background<<S::Service as tower_service::Service>::Future, B>>,
+        T: AsyncRead + AsyncWrite,
+        B: Body + 'static,
+    {
+        type Item = <tower_h2::server::Connection<T, S, E, B, ()> as Future>::Item;
+        type Error = <tower_h2::server::Connection<T, S, E, B, ()> as Future>::Error;
+        fn poll(&mut self) -> futures::Poll<Self::Item, Self::Error> {
+            if self.done.load(Ordering::SeqCst) && self.hasnt_shutdown {
+                self.conn.graceful_shutdown();
+                self.hasnt_shutdown = false;
+            }
+            self.conn.poll()
+        }
+    }
+
+    let done2 = done.clone();
+    let h2 = Server::new(SyncServiceFn::new(move |_request| {
+        let response = http::Response::builder()
+            .status(200)
+            .body(())
+            .unwrap();
+
+        done2.store(true, Ordering::SeqCst);
+        Ok::<_, ()>(response.into())
+    }),
+    Default::default(), TaskExecutor::current());
+    let conn = h2.serve(io);
+    let graceful = GracefulShutdown {
+        conn,
+        done,
+        hasnt_shutdown: true,
+    };
+    CurrentThread::new()
+        .spawn(graceful.map_err(|e| panic!("err={:?}", e)))
+        .block_on(client)
+        .unwrap();
+}
