@@ -40,7 +40,7 @@ impl Body for SendBody {
     type Data = Bytes;
 
     fn is_end_stream(&self) -> bool {
-        self.0.as_ref().map(|b| b.is_empty()).unwrap_or(false)
+        self.0.as_ref().map(|b| b.is_empty()).unwrap_or(true)
     }
 
     fn poll_data(&mut self) -> Poll<Option<Bytes>, h2::Error> {

@@ -135,7 +135,7 @@ fn hello_bodies() {
         )
         .recv_frame(frames::headers(1).response(200))
 
-        .recv_frame(frames::data(1, "hello back"))
+        .recv_frame(frames::data(1, "hello back").eos())
         .close();
 
     let h2 = Server::new(
@@ -177,7 +177,7 @@ fn hello_rsp_body() {
                 .eos()
         )
         .recv_frame(frames::headers(1).response(200))
-        .recv_frame(frames::data(1, "hello back"))
+        .recv_frame(frames::data(1, "hello back").eos())
         .close();
 
     let h2 = Server::new(
