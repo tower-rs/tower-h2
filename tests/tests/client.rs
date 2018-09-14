@@ -52,6 +52,30 @@ impl<T: AsyncRead + AsyncWrite, E> tokio_connect::Connect for MockConn<T, E> {
     }
 }
 
+struct ErrorIo;
+
+impl io::Read for ErrorIo {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        Err(io::Error::new(io::ErrorKind::Other, "barf"))
+    }
+}
+
+impl io::Write for ErrorIo {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        Err(io::Error::new(io::ErrorKind::Other, "barf"))
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Err(io::Error::new(io::ErrorKind::Other, "aorf"))
+    }
+}
+
+impl AsyncRead for ErrorIo {}
+impl AsyncWrite for ErrorIo {
+    fn shutdown(&mut self) -> io::Result<futures::Async<()>> {
+        Err(io::Error::new(io::ErrorKind::Other, "aorf"))
+    }
+}
+
 #[test]
 fn hello() {
     let _ = ::env_logger::try_init();
@@ -134,6 +158,7 @@ fn hello_req_body() {
         .unwrap();
 }
 
+#[test]
 fn hello_req_trailers() {
     let _ = ::env_logger::try_init();
 
@@ -544,6 +569,36 @@ fn connect_error() {
         });
 
     Runtime::new().unwrap()
+        .block_on(done)
+        .unwrap_err();
+}
+
+#[test]
+fn handshake_error() {
+    let _ = ::env_logger::try_init();
+
+    let conn = MockConn::new(ErrorIo);
+    let h2 = Connect::new(conn, Default::default(), TaskExecutor::current());
+    let done = h2.new_service()
+      .map_err(|e| {
+            assert_eq!(
+                format!("{}", e),
+                "Error while performing HTTP/2.0 handshake: \
+                 An error occurred while attempting to perform \
+                 the HTTP/2 handshake: barf".to_string()
+            );
+            e
+        })
+        .map(|mut h2| {
+            let _ = h2.call(http::Request::builder()
+                .method("GET")
+                .uri("https://example.com/")
+                .body(())
+                .unwrap());
+            panic!("this shouldn't have gotten this far!")
+        });
+
+    CurrentThread::new()
         .block_on(done)
         .unwrap_err();
 }
