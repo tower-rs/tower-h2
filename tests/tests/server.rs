@@ -295,7 +295,7 @@ fn hello_unsync_box_body() {
                 .eos()
         )
         .recv_frame(frames::headers(1).response(200))
-        .recv_frame(frames::data(1, "hello back"))
+        .recv_frame(frames::data(1, "hello back").eos())
         .close();
 
     let h2 = Server::new(
@@ -641,8 +641,6 @@ fn flushing_body_cancels_if_reset() {
 
 #[test]
 fn response_error_resets() {
-    use h2_support::h2::frame::{Reset, Reason};
-
     let _ = ::env_logger::try_init();
 
     let (io, client) = mock::new();
@@ -868,9 +866,9 @@ fn stream_ids() {
         .recv_frame(frames::headers(1).response(200))
         .recv_frame(frames::headers(3).response(200))
         .recv_frame(frames::headers(7).response(200))
-        .recv_frame(frames::data(1, "StreamId(1)"))
-        .recv_frame(frames::data(3, "StreamId(3)"))
-        .recv_frame(frames::data(7, "StreamId(7)"))
+        .recv_frame(frames::data(1, "StreamId(1)").eos())
+        .recv_frame(frames::data(3, "StreamId(3)").eos())
+        .recv_frame(frames::data(7, "StreamId(7)").eos())
         .close();
 
     let h2 = Server::new(
