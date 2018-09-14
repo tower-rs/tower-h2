@@ -4,9 +4,10 @@ use bytes::Bytes;
 use h2_support::prelude::*;
 use tokio::runtime::current_thread::Runtime;
 use tokio_current_thread::TaskExecutor;
-use tower_h2::{BoxBody, Body};
+use tower_h2::{UnsyncBoxBody, BoxBody, Body};
 use tower_h2::server::Server;
 use std::io;
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 
 mod support;
 mod extract {
@@ -235,7 +236,7 @@ fn hello_rsp_body_trailers() {
         }),
         Default::default(), TaskExecutor::current());
 
-    CurrentThread::new()
+    Runtime::new().unwrap()
         .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
         .block_on(client)
         .unwrap();
@@ -273,6 +274,42 @@ fn hello_box_body() {
 
     Runtime::new()
         .unwrap()
+        .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
+        .block_on(client)
+        .unwrap();
+}
+
+#[test]
+fn hello_unsync_box_body() {
+    let _ = ::env_logger::try_init();
+
+    let (io, client) = mock::new();
+
+    let client = client
+        .assert_server_handshake()
+        .unwrap()
+        .recv_settings()
+        .send_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos()
+        )
+        .recv_frame(frames::headers(1).response(200))
+        .recv_frame(frames::data(1, "hello back"))
+        .close();
+
+    let h2 = Server::new(
+        SyncServiceFn::new(|_req| {
+            let response = http::Response::builder()
+                .status(200)
+                .body(UnsyncBoxBody::new(Box::new(SendBody::new("hello back"))))
+                .unwrap();
+
+            Ok::<_, ()>(response.into())
+        }),
+        Default::default(), TaskExecutor::current());
+
+    Runtime::new().unwrap()
         .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
         .block_on(client)
         .unwrap();
@@ -628,7 +665,7 @@ fn response_error_resets() {
         }),
         Default::default(), TaskExecutor::current());
 
-    CurrentThread::new()
+    Runtime::new().unwrap()
         .spawn(h2.serve(io).map_err(|_|()))
         .block_on(client)
         .unwrap();
@@ -658,7 +695,7 @@ fn client_resets() {
     }),
     Default::default(), TaskExecutor::current());
 
-    CurrentThread::new()
+    Runtime::new().unwrap()
         .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
         .block_on(client)
         .unwrap();
@@ -702,7 +739,6 @@ fn graceful_shutdown() {
         .recv_frame(frames::headers(3).response(200).eos())
         .close(); // TODO: should this recv_Eof first?
 
-    use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 
     let done = Arc::new(AtomicBool::from(false));
 
@@ -753,8 +789,105 @@ fn graceful_shutdown() {
         done,
         hasnt_shutdown: true,
     };
-    CurrentThread::new()
+    Runtime::new().unwrap()
         .spawn(graceful.map_err(|e| panic!("err={:?}", e)))
+        .block_on(client)
+        .unwrap();
+}
+
+// #[test]
+// fn serve_modified() {
+
+//     let _ = ::env_logger::try_init();
+//     let (io, client) = mock::new();
+
+//     let client = client
+//         .assert_server_handshake()
+//         .unwrap()
+//         .recv_settings()
+//         .send_frame(
+//             frames::headers(1)
+//                 .request("GET", "https://example.com/")
+//                 .eos(),
+//         )
+//         .recv_frame(frames::headers(1).response(200))
+//         .recv_frame(frames::data(1, "foo").eos())
+//         .close();
+
+//     #[derive(Clone)]
+//     struct MyExtension(String);
+
+//     let h2 = Server::new(
+//         SyncServiceFn::new(|request| {
+//             let body = if let Some(MyExtension(ref b)) = request
+//                 .extensions()
+//                 .get::<MyExtension>()
+//             {
+//                 b
+//             } else {
+//                 ""
+//             };
+
+//             let response = http::Response::builder()
+//                 .status(200)
+//                 .body(SendBody::new(body))
+//                 .unwrap();
+
+//             Ok::<_, ()>(response.into())
+//         }),
+//         Default::default(), TaskExecutor::current());
+//     let srv = h2.serve_modified
+//     Runtime::new().unwrap()
+//         .spawn(.map_err(|e| panic!("err={:?}", e)))
+//         .block_on(client)
+//         .unwrap();
+// }
+
+#[test]
+fn stream_ids() {
+    let _ = ::env_logger::try_init();
+
+    let (io, client) = mock::new();
+
+    let client = client
+        .assert_server_handshake()
+        .unwrap()
+        .recv_settings()
+        .send_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/").eos()
+        )
+        .send_frame(
+            frames::headers(3)
+                .request("GET", "https://example.com/").eos()
+        )
+        .send_frame(
+            frames::headers(7)
+                .request("GET", "https://example.com/").eos()
+        )
+        .recv_frame(frames::headers(1).response(200))
+        .recv_frame(frames::headers(3).response(200))
+        .recv_frame(frames::headers(7).response(200))
+        .recv_frame(frames::data(1, "StreamId(1)"))
+        .recv_frame(frames::data(3, "StreamId(3)"))
+        .recv_frame(frames::data(7, "StreamId(7)"))
+        .close();
+
+    let h2 = Server::new(
+        SyncServiceFn::new(|request: http::Request<tower_h2::RecvBody>| {
+            let (_, body) = request.into_parts();
+
+            let response = http::Response::builder()
+                .status(200)
+                .body(SendBody::new(format!("{:?}", body.stream_id().unwrap())))
+                .unwrap();
+            Ok::<_, ()>(response)
+        }),
+        Default::default(), TaskExecutor::current());
+
+    Runtime::new()
+        .unwrap()
+        .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
         .block_on(client)
         .unwrap();
 }

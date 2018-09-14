@@ -170,7 +170,7 @@ fn hello_req_trailers() {
         })
         .map_err(|e| panic!("error: {:?}", e));
 
-    CurrentThread::new()
+    Runtime::new().unwrap()
         .spawn(srv)
         .block_on(done)
         .unwrap();
@@ -263,7 +263,7 @@ fn hello_rsp_trailers() {
         .map(|body| assert_eq!(body, Some("hello world".into())))
         .map_err(|e| panic!("error: {:?}", e));
 
-    CurrentThread::new()
+    Runtime::new().unwrap()
         .spawn(srv)
         .block_on(done)
         .unwrap();
