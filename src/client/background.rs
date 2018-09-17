@@ -51,8 +51,9 @@ where T: AsyncRead + AsyncWrite,
         use self::Task::*;
 
         match self.task {
-            // TODO: Log error?
-            Connection(ref mut f) => f.poll().map_err(|_| ()),
+            Connection(ref mut f) => f.poll().map_err(|err| {
+                warn!("error driving HTTP/2 client connection: {:?}", err);
+            }),
             Flush(ref mut f) => f.poll(),
         }
     }

@@ -233,7 +233,10 @@ where T: AsyncRead + AsyncWrite,
         // Spawn the worker task
         let task = Background::connection(connection);
         self.executor.execute(task)
-            .map_err(|_| HandshakeError::Execute)?;
+            .map_err(|err| {
+                warn!("error handshaking: {:?}", err);
+                HandshakeError::Execute
+            })?;
 
         // Create an instance of the service
         let service = Connection::new(client, self.executor.clone());
