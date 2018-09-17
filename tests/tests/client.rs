@@ -2,8 +2,8 @@ use self::support::*;
 extern crate tokio_connect;
 
 use h2_support::{mock::Mock, prelude::*};
-use tokio::executor::current_thread::*;
-
+use tokio::runtime::current_thread::Runtime;
+use tokio_current_thread::TaskExecutor;
 use tower_h2::client::Connect;
 
 use tower_service::{NewService, Service};
@@ -44,6 +44,7 @@ fn hello() {
         .assert_client_handshake()
         .unwrap()
         .recv_settings()
+        .recv_frame(frames::data(9000, "barf"))
         .recv_frame(
             frames::headers(1)
                 .request("GET", "https://example.com/")
@@ -69,7 +70,8 @@ fn hello() {
         })
         .map_err(|e| panic!("error: {:?}", e));
 
-    CurrentThread::new()
+    Runtime::new()
+        .unwrap()
         .spawn(srv)
         .block_on(done)
         .unwrap();
@@ -110,7 +112,8 @@ fn hello_req_body() {
         })
         .map_err(|e| panic!("error: {:?}", e));
 
-    CurrentThread::new()
+    Runtime::new()
+        .unwrap()
         .spawn(srv)
         .block_on(done)
         .unwrap();
@@ -155,7 +158,8 @@ fn hello_rsp_body() {
         .map(|body| assert_eq!(body, Some("hello world".into())))
         .map_err(|e| panic!("error: {:?}", e));
 
-    CurrentThread::new()
+    Runtime::new()
+        .unwrap()
         .spawn(srv)
         .block_on(done)
         .unwrap();
@@ -201,7 +205,8 @@ fn hello_bodies() {
         .map(|body| assert_eq!(body, Some("hello back!".into())))
         .map_err(|e| panic!("error: {:?}", e));
 
-    CurrentThread::new()
+    Runtime::new()
+        .unwrap()
         .spawn(srv)
         .block_on(done)
         .unwrap();

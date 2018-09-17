@@ -4,6 +4,7 @@ pub extern crate h2;
 pub extern crate h2_support;
 pub extern crate http;
 pub extern crate tokio;
+pub extern crate tokio_current_thread;
 pub extern crate tower_h2;
 pub extern crate tower_service;
 pub extern crate tower_util;

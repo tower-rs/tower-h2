@@ -2,7 +2,8 @@ use self::support::*;
 
 use bytes::Bytes;
 use h2_support::prelude::*;
-use tokio::executor::current_thread::*;
+use tokio::runtime::current_thread::Runtime;
+use tokio_current_thread::TaskExecutor;
 use tower_h2::Body;
 use tower_h2::server::Server;
 
@@ -110,7 +111,8 @@ fn hello() {
         }),
         Default::default(), TaskExecutor::current());
 
-    CurrentThread::new()
+    Runtime::new()
+        .unwrap()
         .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
         .block_on(client)
         .unwrap();
@@ -154,7 +156,8 @@ fn hello_bodies() {
         }),
         Default::default(), TaskExecutor::current());
 
-    CurrentThread::new()
+    Runtime::new()
+        .unwrap()
         .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
         .block_on(client)
         .unwrap();
@@ -191,7 +194,8 @@ fn hello_rsp_body() {
         }),
         Default::default(), TaskExecutor::current());
 
-    CurrentThread::new()
+    Runtime::new()
+        .unwrap()
         .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
         .block_on(client)
         .unwrap();
@@ -232,7 +236,8 @@ fn hello_req_body() {
         }),
         Default::default(), TaskExecutor::current());
 
-    CurrentThread::new()
+    Runtime::new()
+        .unwrap()
         .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
         .block_on(client)
         .unwrap();
@@ -326,7 +331,8 @@ fn respects_flow_control_eos_signal() {
         }),
         Default::default(), TaskExecutor::current());
 
-    CurrentThread::new()
+    Runtime::new()
+        .unwrap()
         .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
         .block_on(client)
         .unwrap();
@@ -417,7 +423,8 @@ fn respects_flow_control_no_eos_signal() {
         }),
         Default::default(), TaskExecutor::current());
 
-    CurrentThread::new()
+    Runtime::new()
+        .unwrap()
         .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
         .block_on(client)
         .unwrap();
@@ -508,7 +515,7 @@ fn flushing_body_cancels_if_reset() {
 
     // hold on to the runtime so that after block_on, it isn't dropped
     // immediately, which defeats our test.
-    let mut rt = CurrentThread::new();
+    let mut rt = Runtime::new().unwrap();
     rt.spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)));
     rt.block_on(client).unwrap();
 
