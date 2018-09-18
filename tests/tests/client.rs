@@ -71,8 +71,7 @@ fn hello() {
 
     Runtime::new()
         .unwrap()
-        .spawn(srv)
-        .block_on(done)
+        .block_on(done.join(srv))
         .unwrap();
 }
 
@@ -113,8 +112,7 @@ fn hello_req_body() {
 
     Runtime::new()
         .unwrap()
-        .spawn(srv)
-        .block_on(done)
+        .block_on(done.join(srv))
         .unwrap();
 }
 
@@ -159,8 +157,7 @@ fn hello_rsp_body() {
 
     Runtime::new()
         .unwrap()
-        .spawn(srv)
-        .block_on(done)
+        .block_on(done.join(srv))
         .unwrap();
 }
 
@@ -206,7 +203,6 @@ fn hello_bodies() {
 
     Runtime::new()
         .unwrap()
-        .spawn(srv)
-        .block_on(done)
+        .block_on(done.join(srv))
         .unwrap();
 }

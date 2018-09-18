@@ -111,10 +111,10 @@ fn hello() {
         }),
         Default::default(), TaskExecutor::current());
 
+    let f = h2.serve(io).map_err(|e| panic!("err={:?}", e)).join(client);
     Runtime::new()
         .unwrap()
-        .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
-        .block_on(client)
+        .block_on(f)
         .unwrap();
 }
 
@@ -156,10 +156,10 @@ fn hello_bodies() {
         }),
         Default::default(), TaskExecutor::current());
 
+    let f = h2.serve(io).map_err(|e| panic!("err={:?}", e)).join(client);
     Runtime::new()
         .unwrap()
-        .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
-        .block_on(client)
+        .block_on(f)
         .unwrap();
 }
 
@@ -194,10 +194,10 @@ fn hello_rsp_body() {
         }),
         Default::default(), TaskExecutor::current());
 
+    let f = h2.serve(io).map_err(|e| panic!("err={:?}", e)).join(client);
     Runtime::new()
         .unwrap()
-        .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
-        .block_on(client)
+        .block_on(f)
         .unwrap();
 }
 
@@ -236,10 +236,10 @@ fn hello_req_body() {
         }),
         Default::default(), TaskExecutor::current());
 
+    let f = h2.serve(io).map_err(|e| panic!("err={:?}", e)).join(client);
     Runtime::new()
         .unwrap()
-        .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
-        .block_on(client)
+        .block_on(f)
         .unwrap();
 }
 
@@ -331,10 +331,10 @@ fn respects_flow_control_eos_signal() {
         }),
         Default::default(), TaskExecutor::current());
 
+    let f = h2.serve(io).map_err(|e| panic!("err={:?}", e)).join(client);
     Runtime::new()
         .unwrap()
-        .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
-        .block_on(client)
+        .block_on(f)
         .unwrap();
 }
 
@@ -423,10 +423,10 @@ fn respects_flow_control_no_eos_signal() {
         }),
         Default::default(), TaskExecutor::current());
 
+    let f = h2.serve(io).map_err(|e| panic!("err={:?}", e)).join(client);
     Runtime::new()
         .unwrap()
-        .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
-        .block_on(client)
+        .block_on(f)
         .unwrap();
 }
 
@@ -516,8 +516,8 @@ fn flushing_body_cancels_if_reset() {
     // hold on to the runtime so that after block_on, it isn't dropped
     // immediately, which defeats our test.
     let mut rt = Runtime::new().unwrap();
-    rt.spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)));
-    rt.block_on(client).unwrap();
+    let f = h2.serve(io).map_err(|e| panic!("err={:?}", e)).join(client);
+    rt.block_on(f).unwrap();
 
     // The flush future should have finished, since it was reset. If so,
     // it will have dropped once.
