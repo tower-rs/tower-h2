@@ -44,7 +44,6 @@ fn hello() {
         .assert_client_handshake()
         .unwrap()
         .recv_settings()
-        .recv_frame(frames::data(9000, "barf"))
         .recv_frame(
             frames::headers(1)
                 .request("GET", "https://example.com/")
