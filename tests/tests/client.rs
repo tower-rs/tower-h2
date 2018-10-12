@@ -76,6 +76,7 @@ impl AsyncWrite for ErrorIo {
     }
 }
 
+
 #[test]
 fn hello() {
     let _ = ::env_logger::try_init();
@@ -189,16 +190,10 @@ fn hello_req_trailers() {
                 .body(SendBody::new("hello world")
                     .with_trailers(http::HeaderMap::new()))
                 .unwrap())
-        })
-        .map(|rsp| {
-            assert_eq!(rsp.status(), http::StatusCode::OK);
-        })
-        .map_err(|e| panic!("error: {:?}", e));
+        });
 
-    Runtime::new().unwrap()
-        .spawn(srv)
-        .block_on(done)
-        .unwrap();
+    let rsp = rt::spawn_bg_and_run(done, srv);
+    assert_eq!(rsp.status(), http::StatusCode::OK);
 }
 
 
@@ -284,14 +279,10 @@ fn hello_rsp_trailers() {
             assert_eq!(rsp.status(), http::StatusCode::OK);
             let (_, body) = rsp.into_parts();
             read_recv_body(body).from_err()
-        })
-        .map(|body| assert_eq!(body, Some("hello world".into())))
-        .map_err(|e| panic!("error: {:?}", e));
+        });
 
-    Runtime::new().unwrap()
-        .spawn(srv)
-        .block_on(done)
-        .unwrap();
+    let body = rt::spawn_bg_and_run(done, srv);
+    assert_eq!(body, Some("hello world".into()));
 }
 
 
@@ -331,14 +322,10 @@ fn hello_bodies() {
             assert_eq!(rsp.status(), http::StatusCode::OK);
             let (_, body) = rsp.into_parts();
             read_recv_body(body).from_err()
-        })
-        .map(|body| assert_eq!(body, Some("hello back!".into())))
-        .map_err(|e| panic!("error: {:?}", e));
+        });
 
-    Runtime::new()
-        .unwrap()
-        .block_on(done.join(srv))
-        .unwrap();
+    let body = rt::spawn_bg_and_run(done, srv);
+    assert_eq!(body, Some("hello back!".into()));
 }
 
 #[test]
@@ -432,16 +419,10 @@ fn respects_flow_control_eos_signal() {
                 .uri("https://example.com/")
                 .body(Zeros::new(cnt.clone()))
                 .unwrap())
-        })
-       .map(|rsp| {
-            assert_eq!(rsp.status(), http::StatusCode::OK);
-        })
-        .map_err(|e| panic!("error: {:?}", e));
+        });
 
-    Runtime::new().unwrap()
-        .spawn(srv)
-        .block_on(done)
-        .unwrap();
+    let rsp = rt::spawn_bg_and_run(done, srv);
+    assert_eq!(rsp.status(), http::StatusCode::OK);
 }
 
 
@@ -534,16 +515,10 @@ fn respects_flow_control_no_eos_signal() {
                 .uri("https://example.com/")
                 .body(Zeros::new(cnt.clone()))
                 .unwrap())
-        })
-       .map(|rsp| {
-            assert_eq!(rsp.status(), http::StatusCode::OK);
-        })
-        .map_err(|e| panic!("error: {:?}", e));
+        });
 
-    Runtime::new().unwrap()
-        .spawn(srv)
-        .block_on(done)
-        .unwrap();
+    let rsp = rt::spawn_bg_and_run(done, srv);
+    assert_eq!(rsp.status(), http::StatusCode::OK)
 }
 
 #[test]
@@ -598,7 +573,7 @@ fn handshake_error() {
             panic!("this shouldn't have gotten this far!")
         });
 
-    CurrentThread::new()
+    Runtime::new().unwrap()
         .block_on(done)
         .unwrap_err();
 }

@@ -13,6 +13,8 @@ use bytes::{Bytes, Buf};
 use tower_h2::{Body, RecvBody};
 use futures::{Future, Poll, Async};
 
+pub use h2_support::env_logger;
+
 // We can't import `try_ready` here because this module isn't at the crate
 // root, so we'll redefine it instead.
 #[macro_export]
@@ -24,6 +26,35 @@ macro_rules! try_ready {
         Err(e) => return Err(From::from(e)),
     })
 }
+
+
+pub mod rt {
+    use futures::Future;
+    use tokio::runtime::current_thread::Runtime;
+    use std::fmt;
+
+    /// Helper function to construct a new single-threaded `Runtime`, spawn a
+    /// "background" future, and then block on a "foreground" future.
+    pub fn spawn_bg_and_run<F, B>(
+        foreground: F,
+        background: B,
+    ) -> F::Item
+    where
+        F: Future,
+        F::Error: fmt::Debug,
+        B: Future<Item = ()> + 'static,
+        B::Error: fmt::Debug,
+    {
+        let _ = super::env_logger::try_init();
+
+        Runtime::new().expect("create runtime")
+            .spawn(background
+                .map_err(|e| panic!("background future error: {:?}", e)))
+            .block_on(foreground)
+            .expect("foreground future error")
+    }
+}
+
 
 #[derive(Default)]
 pub struct SendBody {

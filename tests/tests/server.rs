@@ -236,16 +236,11 @@ fn hello_rsp_body_trailers() {
         }),
         Default::default(), TaskExecutor::current());
 
-    Runtime::new().unwrap()
-        .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
-        .block_on(client)
-        .unwrap();
+    rt::spawn_bg_and_run(client, h2.serve(io));
 }
 
 #[test]
 fn hello_box_body() {
-    let _ = ::env_logger::try_init();
-
     let (io, client) = mock::new();
 
     let client = client
@@ -272,17 +267,11 @@ fn hello_box_body() {
         }),
         Default::default(), TaskExecutor::current());
 
-    Runtime::new()
-        .unwrap()
-        .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
-        .block_on(client)
-        .unwrap();
+    rt::spawn_bg_and_run(client, h2.serve(io));
 }
 
 #[test]
 fn hello_unsync_box_body() {
-    let _ = ::env_logger::try_init();
-
     let (io, client) = mock::new();
 
     let client = client
@@ -309,10 +298,7 @@ fn hello_unsync_box_body() {
         }),
         Default::default(), TaskExecutor::current());
 
-    Runtime::new().unwrap()
-        .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
-        .block_on(client)
-        .unwrap();
+    rt::spawn_bg_and_run(client, h2.serve(io));
 }
 
 #[test]
@@ -397,10 +383,7 @@ fn hello_req_trailers() {
         }),
         Default::default(), TaskExecutor::current());
 
-    CurrentThread::new()
-        .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
-        .block_on(client)
-        .unwrap();
+    rt::spawn_bg_and_run(client, h2.serve(io));
 }
 
 #[test]
@@ -687,8 +670,6 @@ fn flushing_body_cancels_if_reset() {
 
 #[test]
 fn response_error_resets() {
-    let _ = ::env_logger::try_init();
-
     let (io, client) = mock::new();
 
     let client = client
@@ -709,17 +690,12 @@ fn response_error_resets() {
         }),
         Default::default(), TaskExecutor::current());
 
-    Runtime::new().unwrap()
-        .spawn(h2.serve(io).map_err(|_|()))
-        .block_on(client)
-        .unwrap();
+    rt::spawn_bg_and_run(client, h2.serve(io));
 }
 
 
 #[test]
 fn client_resets() {
-    let _ = ::env_logger::try_init();
-
     let (io, client) = mock::new();
 
     let client = client
@@ -739,16 +715,12 @@ fn client_resets() {
     }),
     Default::default(), TaskExecutor::current());
 
-    Runtime::new().unwrap()
-        .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
-        .block_on(client)
-        .unwrap();
+    rt::spawn_bg_and_run(client, h2.serve(io));
 }
 
 
 #[test]
 fn graceful_shutdown() {
-    let _ = ::env_logger::try_init();
     let (io, client) = mock::new();
 
     let client = client
@@ -833,10 +805,8 @@ fn graceful_shutdown() {
         done,
         hasnt_shutdown: true,
     };
-    Runtime::new().unwrap()
-        .spawn(graceful.map_err(|e| panic!("err={:?}", e)))
-        .block_on(client)
-        .unwrap();
+
+    rt::spawn_bg_and_run(client, graceful);
 }
 
 // #[test]
@@ -889,8 +859,6 @@ fn graceful_shutdown() {
 
 #[test]
 fn stream_ids() {
-    let _ = ::env_logger::try_init();
-
     let (io, client) = mock::new();
 
     let client = client
@@ -929,9 +897,5 @@ fn stream_ids() {
         }),
         Default::default(), TaskExecutor::current());
 
-    Runtime::new()
-        .unwrap()
-        .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
-        .block_on(client)
-        .unwrap();
+    rt::spawn_bg_and_run(client, h2.serve(io));
 }
