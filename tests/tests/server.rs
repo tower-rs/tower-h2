@@ -1,19 +1,13 @@
-extern crate bytes;
-extern crate futures;
-extern crate h2;
-extern crate h2_support;
-extern crate http;
-extern crate tokio;
-extern crate tower_h2;
-extern crate tower_service;
-extern crate tower_util;
+use self::support::*;
 
 use bytes::Bytes;
 use h2_support::prelude::*;
-use tokio::executor::current_thread::*;
+use tokio::runtime::current_thread::Runtime;
+use tokio_current_thread::TaskExecutor;
 use tower_h2::Body;
 use tower_h2::server::Server;
 
+mod support;
 mod extract {
     use futures::{Async, Poll, IntoFuture};
     use futures::future::{self, FutureResult};
@@ -117,9 +111,135 @@ fn hello() {
         }),
         Default::default(), TaskExecutor::current());
 
-    CurrentThread::new()
-        .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
-        .block_on(client)
+    let f = h2.serve(io).map_err(|e| panic!("err={:?}", e)).join(client);
+    Runtime::new()
+        .unwrap()
+        .block_on(f)
+        .unwrap();
+}
+
+#[test]
+fn hello_bodies() {
+    let _ = ::env_logger::try_init();
+
+    let (io, client) = mock::new();
+
+    let client = client
+        .assert_server_handshake()
+        .unwrap()
+        .recv_settings()
+        .send_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+        )
+        .send_frame(
+            frames::data(1, "hello world").eos()
+        )
+        .recv_frame(frames::headers(1).response(200))
+
+        .recv_frame(frames::data(1, "hello back").eos())
+        .close();
+
+    let h2 = Server::new(
+        SyncServiceFn::new(|request: http::Request<tower_h2::RecvBody>| {
+            let (_, body) = request.into_parts();
+            read_recv_body(body)
+                .and_then(|body| {
+                    assert_eq!(body, Some("hello world".into()));
+
+                    let response = http::Response::builder()
+                        .status(200)
+                        .body(SendBody::new("hello back"))
+                        .unwrap();
+                    Ok(response)
+                })
+        }),
+        Default::default(), TaskExecutor::current());
+
+    let f = h2.serve(io).map_err(|e| panic!("err={:?}", e)).join(client);
+    Runtime::new()
+        .unwrap()
+        .block_on(f)
+        .unwrap();
+}
+
+
+#[test]
+fn hello_rsp_body() {
+    let _ = ::env_logger::try_init();
+
+    let (io, client) = mock::new();
+
+    let client = client
+        .assert_server_handshake()
+        .unwrap()
+        .recv_settings()
+        .send_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos()
+        )
+        .recv_frame(frames::headers(1).response(200))
+        .recv_frame(frames::data(1, "hello back").eos())
+        .close();
+
+    let h2 = Server::new(
+        SyncServiceFn::new(|_req| {
+            let response = http::Response::builder()
+                .status(200)
+                .body(SendBody::new("hello back"))
+                .unwrap();
+
+            Ok::<_, ()>(response.into())
+        }),
+        Default::default(), TaskExecutor::current());
+
+    let f = h2.serve(io).map_err(|e| panic!("err={:?}", e)).join(client);
+    Runtime::new()
+        .unwrap()
+        .block_on(f)
+        .unwrap();
+}
+
+#[test]
+fn hello_req_body() {
+    let _ = ::env_logger::try_init();
+
+    let (io, client) = mock::new();
+
+    let client = client
+        .assert_server_handshake()
+        .unwrap()
+        .recv_settings()
+        .send_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+        )
+        .send_frame(frames::data(1, "hello "))
+        .send_frame(frames::data(1, "world").eos())
+        .recv_frame(frames::headers(1).response(200).eos())
+        .close();
+
+    let h2 = Server::new(
+        SyncServiceFn::new(|request: http::Request<tower_h2::RecvBody>| {
+            let (_, body) = request.into_parts();
+            read_recv_body(body)
+                .and_then(|body| {
+                    assert_eq!(body, Some("hello world".into()));
+
+                    let response = http::Response::builder()
+                        .status(200)
+                        .body(())
+                        .unwrap();
+                    Ok(response)
+                })
+        }),
+        Default::default(), TaskExecutor::current());
+
+    let f = h2.serve(io).map_err(|e| panic!("err={:?}", e)).join(client);
+    Runtime::new()
+        .unwrap()
+        .block_on(f)
         .unwrap();
 }
 
@@ -154,7 +274,7 @@ fn respects_flow_control_eos_signal() {
             self.cnt.get() == 5
         }
 
-        fn poll_data(&mut self) -> Poll<Option<Self::Data>, h2::Error> {
+        fn poll_data(&mut self) -> Poll<Option<Self::Data>, support::h2::Error> {
             let cnt = self.cnt.get();
 
             if cnt == 5 {
@@ -211,9 +331,10 @@ fn respects_flow_control_eos_signal() {
         }),
         Default::default(), TaskExecutor::current());
 
-    CurrentThread::new()
-        .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
-        .block_on(client)
+    let f = h2.serve(io).map_err(|e| panic!("err={:?}", e)).join(client);
+    Runtime::new()
+        .unwrap()
+        .block_on(f)
         .unwrap();
 }
 
@@ -244,7 +365,7 @@ fn respects_flow_control_no_eos_signal() {
     impl Body for Zeros {
         type Data = Bytes;
 
-        fn poll_data(&mut self) -> Poll<Option<Self::Data>, h2::Error> {
+        fn poll_data(&mut self) -> Poll<Option<Self::Data>, support::h2::Error> {
             let cnt = self.cnt.get();
 
             if cnt == 5 {
@@ -302,9 +423,10 @@ fn respects_flow_control_no_eos_signal() {
         }),
         Default::default(), TaskExecutor::current());
 
-    CurrentThread::new()
-        .spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)))
-        .block_on(client)
+    let f = h2.serve(io).map_err(|e| panic!("err={:?}", e)).join(client);
+    Runtime::new()
+        .unwrap()
+        .block_on(f)
         .unwrap();
 }
 
@@ -348,7 +470,7 @@ fn flushing_body_cancels_if_reset() {
             false
         }
 
-        fn poll_data(&mut self) -> Poll<Option<Self::Data>, h2::Error> {
+        fn poll_data(&mut self) -> Poll<Option<Self::Data>, support::h2::Error> {
             if self.cnt == 1 {
                 Ok(Async::NotReady)
             } else {
@@ -393,9 +515,9 @@ fn flushing_body_cancels_if_reset() {
 
     // hold on to the runtime so that after block_on, it isn't dropped
     // immediately, which defeats our test.
-    let mut rt = CurrentThread::new();
-    rt.spawn(h2.serve(io).map_err(|e| panic!("err={:?}", e)));
-    rt.block_on(client).unwrap();
+    let mut rt = Runtime::new().unwrap();
+    let f = h2.serve(io).map_err(|e| panic!("err={:?}", e)).join(client);
+    rt.block_on(f).unwrap();
 
     // The flush future should have finished, since it was reset. If so,
     // it will have dropped once.
