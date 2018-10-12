@@ -13,6 +13,7 @@ use tower_service::{NewService, Service};
 use futures::future::{self, FutureResult};
 use std::{
     cell::RefCell,
+    fmt,
     io,
 };
 
@@ -76,6 +77,35 @@ impl AsyncWrite for ErrorIo {
     }
 }
 
+trait TestConn<B> {
+    fn srv_request<F>(&self, srv: F, request: http::Request<B>) -> http::Response<tower_h2::RecvBody>
+    where
+        B: Body,
+        F: Future<Item = ()> + 'static,
+        F::Error: fmt::Debug,
+    ;
+}
+
+impl<C, S> TestConn<S> for Connect<C, TaskExecutor, S>
+where
+    C: tokio_connect::Connect + 'static,
+    C::Error: fmt::Debug,
+    S: Body + 'static,
+{
+    fn srv_request<F>(&self, srv: F, request: http::Request<S>) -> http::Response<tower_h2::RecvBody>
+    where
+        F: Future<Item = ()> + 'static,
+        F::Error: fmt::Debug,
+    {
+        let req = self.new_service()
+            .map_err(|e| panic!("connect err: {:?}", e))
+            .and_then(move |mut h2| {
+                h2.call(request)
+            });
+        rt::spawn_bg_and_run(req, srv)
+    }
+
+}
 
 #[test]
 fn hello() {
@@ -98,24 +128,15 @@ fn hello() {
     let conn = MockConn::new(io);
     let h2 = Connect::new(conn, Default::default(), TaskExecutor::current());
 
-    let done = h2.new_service()
-        .map_err(|e| panic!("connect err: {:?}", e))
-        .and_then(|mut h2| {
-            h2.call(http::Request::builder()
-                .method("GET")
-                .uri("https://example.com/")
-                .body(())
-                .unwrap())
-        })
-        .map(|rsp| {
-            assert_eq!(rsp.status(), http::StatusCode::OK);
-        })
-        .map_err(|e| panic!("error: {:?}", e));
-
-    Runtime::new()
-        .unwrap()
-        .block_on(done.join(srv))
-        .unwrap();
+    let rsp = h2.srv_request(
+        srv,
+        http::Request::builder()
+            .method("GET")
+            .uri("https://example.com/")
+            .body(())
+            .unwrap()
+    );
+    assert_eq!(rsp.status(), http::StatusCode::OK);
 }
 
 #[test]
@@ -139,24 +160,15 @@ fn hello_req_body() {
     let conn = MockConn::new(io);
     let h2 = Connect::new(conn, Default::default(), TaskExecutor::current());
 
-    let done = h2.new_service()
-        .map_err(|e| panic!("connect err: {:?}", e))
-        .and_then(|mut h2| {
-            h2.call(http::Request::builder()
-                .method("GET")
-                .uri("https://example.com/")
-                .body(SendBody::new("hello world"))
-                .unwrap())
-        })
-        .map(|rsp| {
-            assert_eq!(rsp.status(), http::StatusCode::OK);
-        })
-        .map_err(|e| panic!("error: {:?}", e));
-
-    Runtime::new()
-        .unwrap()
-        .block_on(done.join(srv))
-        .unwrap();
+    let rsp = h2.srv_request(
+        srv,
+        http::Request::builder()
+            .method("GET")
+            .uri("https://example.com/")
+            .body(SendBody::new("hello world"))
+            .unwrap()
+    );
+    assert_eq!(rsp.status(), http::StatusCode::OK);
 }
 
 #[test]
@@ -180,27 +192,20 @@ fn hello_req_trailers() {
 
     let conn = MockConn::new(io);
     let h2 = Connect::new(conn, Default::default(), TaskExecutor::current());
-
-    let done = h2.new_service()
-        .map_err(|e| panic!("connect err: {:?}", e))
-        .and_then(|mut h2| {
-            h2.call(http::Request::builder()
-                .method("GET")
-                .uri("https://example.com/")
-                .body(SendBody::new("hello world")
-                    .with_trailers(http::HeaderMap::new()))
-                .unwrap())
-        });
-
-    let rsp = rt::spawn_bg_and_run(done, srv);
+    let rsp = h2.srv_request(srv,
+        http::Request::builder()
+            .method("GET")
+            .uri("https://example.com/")
+            .body(SendBody::new("hello world")
+                .with_trailers(http::HeaderMap::new()))
+            .unwrap()
+    );
     assert_eq!(rsp.status(), http::StatusCode::OK);
 }
 
 
 #[test]
 fn hello_rsp_body() {
-    let _ = ::env_logger::try_init();
-
     let (io, srv) = mock::new();
 
     let srv = srv
@@ -219,7 +224,7 @@ fn hello_rsp_body() {
     let conn = MockConn::new(io);
     let h2 = Connect::new(conn, Default::default(), TaskExecutor::current());
 
-    let done = h2.new_service()
+    let req = h2.new_service()
         .map_err(|e| panic!("connect err: {:?}", e))
         .and_then(|mut h2| {
             h2.call(http::Request::builder()
@@ -232,20 +237,14 @@ fn hello_rsp_body() {
             assert_eq!(rsp.status(), http::StatusCode::OK);
             let (_, body) = rsp.into_parts();
             read_recv_body(body).from_err()
-        })
-        .map(|body| assert_eq!(body, Some("hello world".into())))
-        .map_err(|e| panic!("error: {:?}", e));
+        });
 
-    Runtime::new()
-        .unwrap()
-        .block_on(done.join(srv))
-        .unwrap();
+    let body = rt::spawn_bg_and_run(req, srv);
+    assert_eq!(body, Some("hello world".into()))
 }
 
 #[test]
 fn hello_rsp_trailers() {
-    let _ = ::env_logger::try_init();
-
     let (io, srv) = mock::new();
 
     let srv = srv
@@ -266,7 +265,7 @@ fn hello_rsp_trailers() {
     let conn = MockConn::new(io);
     let h2 = Connect::new(conn, Default::default(), TaskExecutor::current());
 
-    let done = h2.new_service()
+    let req = h2.new_service()
         .map_err(|e| panic!("connect err: {:?}", e))
         .and_then(|mut h2| {
             h2.call(http::Request::builder()
@@ -281,15 +280,13 @@ fn hello_rsp_trailers() {
             read_recv_body(body).from_err()
         });
 
-    let body = rt::spawn_bg_and_run(done, srv);
+    let body = rt::spawn_bg_and_run(req, srv);
     assert_eq!(body, Some("hello world".into()));
 }
 
 
 #[test]
 fn hello_bodies() {
-    let _ = ::env_logger::try_init();
-
     let (io, srv) = mock::new();
 
     let srv = srv
@@ -309,7 +306,7 @@ fn hello_bodies() {
     let conn = MockConn::new(io);
     let h2 = Connect::new(conn, Default::default(), TaskExecutor::current());
 
-    let done = h2.new_service()
+    let req = h2.new_service()
         .map_err(|e| panic!("connect err: {:?}", e))
         .and_then(|mut h2| {
             h2.call(http::Request::builder()
@@ -324,7 +321,7 @@ fn hello_bodies() {
             read_recv_body(body).from_err()
         });
 
-    let body = rt::spawn_bg_and_run(done, srv);
+    let body = rt::spawn_bg_and_run(req, srv);
     assert_eq!(body, Some("hello back!".into()));
 }
 
@@ -411,17 +408,14 @@ fn respects_flow_control_eos_signal() {
     let conn = MockConn::new(io);
     let h2 = Connect::new(conn, Default::default(), TaskExecutor::current());
 
-    let done = h2.new_service()
-        .map_err(|e| panic!("connect err: {:?}", e))
-        .and_then(|mut h2| {
-            h2.call(http::Request::builder()
-                .method("GET")
-                .uri("https://example.com/")
-                .body(Zeros::new(cnt.clone()))
-                .unwrap())
-        });
-
-    let rsp = rt::spawn_bg_and_run(done, srv);
+    let rsp = h2.srv_request(
+        srv,
+        http::Request::builder()
+            .method("GET")
+            .uri("https://example.com/")
+            .body(Zeros::new(cnt.clone()))
+            .unwrap()
+    );
     assert_eq!(rsp.status(), http::StatusCode::OK);
 }
 
@@ -507,17 +501,15 @@ fn respects_flow_control_no_eos_signal() {
     let conn = MockConn::new(io);
     let h2 = Connect::new(conn, Default::default(), TaskExecutor::current());
 
-    let done = h2.new_service()
-        .map_err(|e| panic!("connect err: {:?}", e))
-        .and_then(|mut h2| {
-            h2.call(http::Request::builder()
-                .method("GET")
-                .uri("https://example.com/")
-                .body(Zeros::new(cnt.clone()))
-                .unwrap())
-        });
+    let rsp = h2.srv_request(
+        srv,
+        http::Request::builder()
+            .method("GET")
+            .uri("https://example.com/")
+            .body(Zeros::new(cnt.clone()))
+            .unwrap()
+    );
 
-    let rsp = rt::spawn_bg_and_run(done, srv);
     assert_eq!(rsp.status(), http::StatusCode::OK)
 }
 
