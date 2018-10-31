@@ -13,7 +13,7 @@ use std::error::Error;
 use std::fmt;
 use std::marker::PhantomData;
 
-/// Establishes an H2 client connection.\
+/// Establishes an H2 client connection.
 ///
 /// Has a builder-like API for configuring client connections.  Currently this only allows
 /// the configuration of TLS transport on new services created by this factory.
@@ -155,17 +155,17 @@ where
 
 // ===== impl ConnectError =====
 
-impl<T> fmt::Display for ConnectError<T> 
-where 
-    T: Error 
+impl<T> fmt::Display for ConnectError<T>
+where
+    T: Error
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            ConnectError::Connect(ref why) => write!(f, 
+            ConnectError::Connect(ref why) => write!(f,
                 "Error attempting to establish underlying session layer: {}",
                 why
             ),
-            ConnectError::Handshake(ref why) =>  write!(f, 
+            ConnectError::Handshake(ref why) =>  write!(f,
                 "Error while performing HTTP/2.0 handshake: {}",
                 why,
             ),
@@ -179,9 +179,9 @@ where
 {
     fn description(&self) -> &str {
         match *self {
-            ConnectError::Connect(_) => 
+            ConnectError::Connect(_) =>
                 "error attempting to establish underlying session layer",
-            ConnectError::Handshake(_) => 
+            ConnectError::Handshake(_) =>
                 "error performing HTTP/2.0 handshake"
         }
     }
