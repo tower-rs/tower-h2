@@ -10,10 +10,7 @@ use futures::{Future, Poll};
 /// This is not intended to be implemented directly. Instead, it is a trait
 /// alias of sorts. Implements the `tower_service::Service` trait using
 /// `http::Request` and `http::Response` types.
-pub trait HttpService<RequestBody>: ::sealed::GenericSealed1<RequestBody>
-where
-    RequestBody: Body,
-{
+pub trait HttpService<RequestBody>: ::sealed::GenericSealed1<RequestBody> {
 
     /// Response payload.
     type ResponseBody: Body;
