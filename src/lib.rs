@@ -27,4 +27,7 @@ mod sealed {
     /// Private trait to this crate to prevent traits from being implemented in
     /// downstream crates.
     pub trait Sealed {}
+    /// Like `Sealed` but for types such as `HttpService` which would otherwise
+    /// have unconstrained type parameters in blanket impls of Sealed.
+    pub trait GenericSealed1<A> {}
 }

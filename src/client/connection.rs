@@ -112,13 +112,12 @@ where S: Body,
     }
 }
 
-impl<T, E, S> Service for Connection<T, E, S>
+impl<T, E, S> Service<Request<S>> for Connection<T, E, S>
 where S: Body + 'static,
       S::Data: IntoBuf + 'static,
       E: Executor<Background<T, S>>,
       T: AsyncRead + AsyncWrite,
 {
-    type Request = Request<S>;
     type Response = Response<RecvBody>;
     type Error = Error;
     type Future = ResponseFuture;
@@ -128,7 +127,7 @@ where S: Body + 'static,
             .map_err(Into::into)
     }
 
-    fn call(&mut self, request: Self::Request) -> Self::Future {
+    fn call(&mut self, request: Request<S>) -> Self::Future {
         trace!("request: {} {}", request.method(), request.uri());
 
         // Split the request from the body

@@ -34,11 +34,10 @@ mod extract {
         }
     }
 
-    impl<T, R, S> Service for SyncServiceFn<T, R>
+    impl<T, R, S> Service<R> for SyncServiceFn<T, R>
     where T: Fn(R) -> S,
           S: IntoFuture,
     {
-        type Request = R;
         type Response = S::Item;
         type Error = S::Error;
         type Future = S::Future;
@@ -47,16 +46,15 @@ mod extract {
             Ok(Async::Ready(()))
         }
 
-        fn call(&mut self, request: Self::Request) -> Self::Future {
+        fn call(&mut self, request: R) -> Self::Future {
             (self.f)(request).into_future()
         }
     }
 
-    impl<T, R, S> NewService for SyncServiceFn<T, R>
+    impl<T, R, S> NewService<R> for SyncServiceFn<T, R>
     where T: Fn(R) -> S,
           S: IntoFuture,
     {
-        type Request = R;
         type Response = S::Item;
         type Error = S::Error;
         type Service = Self;
