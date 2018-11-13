@@ -1,12 +1,11 @@
-use {Body, RecvBody};
+use Body;
 use super::{Connection, Background, Handshake, HandshakeError};
 
-use tower_service::NewService;
+use tower_service::Service;
 
 use futures::{Future, Poll};
 use futures::future::Executor;
 use h2;
-use http::{Request, Response};
 use tokio_connect;
 
 use std::error::Error;
@@ -94,20 +93,22 @@ where
     }
 }
 
-impl<C, E, S> NewService<Request<S>> for Connect<C, E, S>
+impl<C, E, S> Service<()> for Connect<C, E, S>
 where
     C: tokio_connect::Connect + 'static,
     E: Executor<Background<C::Connected, S>> + Clone,
     S: Body + 'static,
 {
-    type Response = Response<RecvBody>;
-    type Error = super::Error;
-    type InitError = ConnectError<C::Error>;
-    type Service = Connection<C::Connected, E, S>;
+    type Response = Connection<C::Connected, E, S>;
+    type Error = ConnectError<C::Error>;
     type Future = ConnectFuture<C, E, S>;
 
+    fn poll_ready(&mut self) -> Poll<(), Self::Error> {
+        Ok(().into())
+    }
+
     /// Obtains a Connection on a single plaintext h2 connection to a remote.
-    fn new_service(&self) -> Self::Future {
+    fn call(&mut self, _target: ()) -> Self::Future {
         let state = State::Connect(self.inner.connect());
         let builder = self.builder.clone();
 

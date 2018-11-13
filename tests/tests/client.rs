@@ -6,7 +6,7 @@ use tokio::runtime::current_thread::Runtime;
 use tokio_current_thread::TaskExecutor;
 use tower_h2::client::Connect;
 
-use tower_service::{NewService, Service};
+use tower_service::{MakeService, Service};
 use futures::future::{self, FutureResult};
 use std::cell::RefCell;
 
@@ -53,9 +53,9 @@ fn hello() {
         .close();
 
     let conn = MockConn::new(io);
-    let h2 = Connect::new(conn, Default::default(), TaskExecutor::current());
+    let mut h2 = Connect::new(conn, Default::default(), TaskExecutor::current());
 
-    let done = h2.new_service()
+    let done = h2.make_service(())
         .map_err(|e| panic!("connect err: {:?}", e))
         .and_then(|mut h2| {
             h2.call(http::Request::builder()
@@ -94,9 +94,9 @@ fn hello_req_body() {
         .close();
 
     let conn = MockConn::new(io);
-    let h2 = Connect::new(conn, Default::default(), TaskExecutor::current());
+    let mut h2 = Connect::new(conn, Default::default(), TaskExecutor::current());
 
-    let done = h2.new_service()
+    let done = h2.make_service(())
         .map_err(|e| panic!("connect err: {:?}", e))
         .and_then(|mut h2| {
             h2.call(http::Request::builder()
@@ -136,9 +136,9 @@ fn hello_rsp_body() {
         .close();
 
     let conn = MockConn::new(io);
-    let h2 = Connect::new(conn, Default::default(), TaskExecutor::current());
+    let mut h2 = Connect::new(conn, Default::default(), TaskExecutor::current());
 
-    let done = h2.new_service()
+    let done = h2.make_service(())
         .map_err(|e| panic!("connect err: {:?}", e))
         .and_then(|mut h2| {
             h2.call(http::Request::builder()
@@ -182,9 +182,9 @@ fn hello_bodies() {
         .close();
 
     let conn = MockConn::new(io);
-    let h2 = Connect::new(conn, Default::default(), TaskExecutor::current());
+    let mut h2 = Connect::new(conn, Default::default(), TaskExecutor::current());
 
-    let done = h2.new_service()
+    let done = h2.make_service(())
         .map_err(|e| panic!("connect err: {:?}", e))
         .and_then(|mut h2| {
             h2.call(http::Request::builder()
