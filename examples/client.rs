@@ -18,7 +18,7 @@ use tokio::net::TcpStream;
 use tokio::runtime::{Runtime, TaskExecutor};
 use tower_h2::{Body, RecvBody};
 use tower_h2::client::Connect;
-use tower_service::{NewService, Service};
+use tower_service::{MakeService, Service};
 use h2::Reason;
 
 pub struct Conn(SocketAddr);
@@ -44,9 +44,9 @@ fn main() {
     }
 
     let conn = Conn(addr);
-    let h2 = Connect::new(conn, Default::default(), executor.clone());
+    let mut h2 = Connect::new(conn, Default::default(), executor.clone());
 
-    let done = h2.new_service()
+    let done = h2.make_service(())
         .map_err(|_| Reason::REFUSED_STREAM.into())
         .and_then(move |h2| {
             Serial {

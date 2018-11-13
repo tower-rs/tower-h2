@@ -31,10 +31,6 @@ impl SendBody {
     pub fn new<I: Into<Bytes>>(body: I) -> Self {
         SendBody(Some(body.into()))
     }
-
-    pub fn empty() -> Self {
-        SendBody(None)
-    }
 }
 
 impl Body for SendBody {

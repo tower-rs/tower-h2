@@ -1,7 +1,7 @@
 use {flush, Body, RecvBody};
 use buf::SendBuf;
 
-use tower_service::{NewService, Service};
+use tower_service::{MakeService, Service};
 
 use bytes::IntoBuf;
 use futures::{Async, Future, Poll, Stream};
@@ -16,7 +16,7 @@ use std::marker::PhantomData;
 
 /// Attaches service implementations to h2 connections.
 pub struct Server<S, E, B>
-where S: NewService<Request<RecvBody>>,
+where S: MakeService<(), Request<RecvBody>>,
       B: Body,
 {
     new_service: S,
@@ -28,7 +28,7 @@ where S: NewService<Request<RecvBody>>,
 /// Drives connection-level I/O .
 pub struct Connection<T, S, E, B, F>
 where T: AsyncRead + AsyncWrite,
-      S: NewService<Request<RecvBody>>,
+      S: MakeService<(), Request<RecvBody>>,
       B: Body,
 {
     state: State<T, S, B>,
@@ -44,12 +44,12 @@ pub trait Modify {
 
 enum State<T, S, B>
 where T: AsyncRead + AsyncWrite,
-      S: NewService<Request<RecvBody>>,
+      S: MakeService<(), Request<RecvBody>>,
       B: Body,
 {
     /// Establish the HTTP/2.0 connection and get a service to process inbound
     /// requests.
-    Init(Init<T, SendBuf<<B::Data as IntoBuf>::Buf>, S::Future, S::InitError>),
+    Init(Init<T, SendBuf<<B::Data as IntoBuf>::Buf>, S::Future, S::MakeError>),
 
     /// Both the HTTP/2.0 connection and the service are ready.
     Ready {
@@ -94,7 +94,7 @@ where B: Body,
 
 /// Error produced by a `Connection`.
 pub enum Error<S>
-where S: NewService<Request<RecvBody>>,
+where S: MakeService<(), Request<RecvBody>>,
 {
     /// Error produced during the HTTP/2.0 handshake.
     Handshake(h2::Error),
@@ -103,7 +103,7 @@ where S: NewService<Request<RecvBody>>,
     Protocol(h2::Error),
 
     /// Error produced when obtaining the service
-    NewService(S::InitError),
+    NewService(S::MakeError),
 
     /// Error produced by the service
     Service(S::Error),
@@ -120,7 +120,7 @@ enum PollMain {
 // ===== impl Server =====
 
 impl<S, E, B> Server<S, E, B>
-where S: NewService<Request<RecvBody>, Response = Response<B>>,
+where S: MakeService<(), Request<RecvBody>, Response = Response<B>>,
       B: Body,
 {
     pub fn new(new_service: S, builder: h2::server::Builder, executor: E) -> Self {
@@ -135,18 +135,18 @@ where S: NewService<Request<RecvBody>, Response = Response<B>>,
 
 
 impl<S, E, B> Server<S, E, B>
-where S: NewService<Request<RecvBody>, Response = Response<B>>,
+where S: MakeService<(), Request<RecvBody>, Response = Response<B>>,
       B: Body,
       E: Clone,
 {
     /// Produces a future that is satisfied once the h2 connection has been initialized.
-    pub fn serve<T>(&self, io: T) -> Connection<T, S, E, B, ()>
+    pub fn serve<T>(&mut self, io: T) -> Connection<T, S, E, B, ()>
     where T: AsyncRead + AsyncWrite,
     {
         self.serve_modified(io, ())
     }
 
-    pub fn serve_modified<T, F>(&self, io: T, modify: F) -> Connection<T, S, E, B, F>
+    pub fn serve_modified<T, F>(&mut self, io: T, modify: F) -> Connection<T, S, E, B, F>
     where T: AsyncRead + AsyncWrite,
           F: Modify,
     {
@@ -154,12 +154,12 @@ where S: NewService<Request<RecvBody>, Response = Response<B>>,
         // connection handle
         let executor = self.executor.clone();
 
-        let service = self.new_service.new_service()
-            .map_err(Either::B as MapErrB<S::InitError>);
+        let service = self.new_service.make_service(())
+            .map_err(Either::B as MapErrB<S::MakeError>);
 
         // TODO we should specify initial settings here!
         let handshake = self.builder.handshake(io)
-            .map_err(Either::A as MapErrA<S::InitError>);
+            .map_err(Either::A as MapErrA<S::MakeError>);
 
         Connection {
             state: State::Init(handshake.join(service)),
@@ -172,7 +172,7 @@ where S: NewService<Request<RecvBody>, Response = Response<B>>,
 // B doesn't need to be Clone, it's just a marker type.
 impl<S, E, B> Clone for Server<S, E, B>
 where
-    S: NewService<Request<RecvBody>> + Clone,
+    S: MakeService<(), Request<RecvBody>> + Clone,
     E: Clone,
     B: Body,
 {
@@ -190,7 +190,7 @@ where
 
 impl<T, S, E, B, F> Future for Connection<T, S, E, B, F>
 where T: AsyncRead + AsyncWrite,
-      S: NewService<Request<RecvBody>, Response = Response<B>>,
+      S: MakeService<(), Request<RecvBody>, Response = Response<B>>,
       E: Executor<Background<<S::Service as Service<Request<RecvBody>>>::Future, B>>,
       B: Body + 'static,
       F: Modify,
@@ -210,7 +210,7 @@ where T: AsyncRead + AsyncWrite,
 
 impl<T, S, E, B, F> Connection<T, S, E, B, F>
 where T: AsyncRead + AsyncWrite,
-      S: NewService<Request<RecvBody>, Response = Response<B>>,
+      S: MakeService<(), Request<RecvBody>, Response = Response<B>>,
       E: Executor<Background<<S::Service as Service<Request<RecvBody>>>::Future, B>>,
       B: Body + 'static,
       F: Modify,
@@ -467,9 +467,9 @@ where T: Future<Item = Response<B>>,
 // ===== impl Error =====
 
 impl<S> Error<S>
-where S: NewService<Request<RecvBody>>,
+where S: MakeService<(), Request<RecvBody>>,
 {
-    fn from_init(err: Either<h2::Error, S::InitError>) -> Self {
+    fn from_init(err: Either<h2::Error, S::MakeError>) -> Self {
         match err {
             Either::A(err) => Error::Handshake(err),
             Either::B(err) => Error::NewService(err),
@@ -479,8 +479,8 @@ where S: NewService<Request<RecvBody>>,
 
 impl<S> fmt::Debug for Error<S>
 where
-    S: NewService<Request<RecvBody>>,
-    S::InitError: fmt::Debug,
+    S: MakeService<(), Request<RecvBody>>,
+    S::MakeError: fmt::Debug,
     S::Error: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -504,8 +504,8 @@ where
 
 impl<S> fmt::Display for Error<S>
 where
-    S: NewService<Request<RecvBody>>,
-    S::InitError: fmt::Display,
+    S: MakeService<(), Request<RecvBody>>,
+    S::MakeError: fmt::Display,
     S::Error: fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -526,8 +526,8 @@ where
 
 impl<S> error::Error for Error<S>
 where
-    S: NewService<Request<RecvBody>>,
-    S::InitError: error::Error,
+    S: MakeService<(), Request<RecvBody>>,
+    S::MakeError: error::Error,
     S::Error: error::Error,
 {
     fn cause(&self) -> Option<&error::Error> {

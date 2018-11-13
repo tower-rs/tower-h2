@@ -11,31 +11,29 @@ mod support;
 mod extract {
     use futures::{Async, Poll, IntoFuture};
     use futures::future::{self, FutureResult};
-    use tower_service::{Service, NewService};
+    use tower_service::{Service};
 
-    use std::marker::PhantomData;
     use std::sync::Arc;
 
-    pub struct SyncServiceFn<T, R> {
+    pub type Req = ::http::Request<::tower_h2::RecvBody>;
+
+    pub struct SyncServiceFn<T> {
         f: Arc<T>,
-        // don't impose Sync on R
-        _ty: PhantomData<fn() -> R>,
     }
 
-    impl<T, R, S> SyncServiceFn<T, R>
-    where T: Fn(R) -> S,
+    impl<T, S> SyncServiceFn<T>
+    where T: Fn(Req) -> S,
           S: IntoFuture,
     {
         pub fn new(f: T) -> Self {
             SyncServiceFn {
                 f: Arc::new(f),
-                _ty: PhantomData,
             }
         }
     }
 
-    impl<T, R, S> Service<R> for SyncServiceFn<T, R>
-    where T: Fn(R) -> S,
+    impl<T, S> Service<Req> for SyncServiceFn<T>
+    where T: Fn(Req) -> S,
           S: IntoFuture,
     {
         type Response = S::Item;
@@ -46,34 +44,35 @@ mod extract {
             Ok(Async::Ready(()))
         }
 
-        fn call(&mut self, request: R) -> Self::Future {
+        fn call(&mut self, request: Req) -> Self::Future {
             (self.f)(request).into_future()
         }
     }
 
-    impl<T, R, S> NewService<R> for SyncServiceFn<T, R>
-    where T: Fn(R) -> S,
+    impl<T, S> Service<()> for SyncServiceFn<T>
+    where T: Fn(Req) -> S,
           S: IntoFuture,
     {
-        type Response = S::Item;
-        type Error = S::Error;
-        type Service = Self;
-        type InitError = ();
+        type Response = Self;
+        type Error = ();
         type Future = FutureResult<Self, ()>;
 
-        fn new_service(&self) -> Self::Future {
+        fn poll_ready(&mut self) -> Poll<(), Self::Error> {
+            Ok(Async::Ready(()))
+        }
+
+        fn call(&mut self, _target: ()) -> Self::Future {
             future::ok(self.clone())
         }
     }
 
-    impl<T, R, S> Clone for SyncServiceFn<T, R>
-    where T: Fn(R) -> S,
+    impl<T, S> Clone for SyncServiceFn<T>
+    where T: Fn(Req) -> S,
           S: IntoFuture,
     {
         fn clone(&self) -> Self {
             SyncServiceFn {
                 f: self.f.clone(),
-                _ty: PhantomData,
             }
         }
     }
@@ -98,7 +97,7 @@ fn hello() {
         .recv_frame(frames::headers(1).response(200).eos())
         .close();
 
-    let h2 = Server::new(
+    let mut h2 = Server::new(
         SyncServiceFn::new(|_request| {
             let response = http::Response::builder()
                 .status(200)
@@ -138,7 +137,7 @@ fn hello_bodies() {
         .recv_frame(frames::data(1, "hello back").eos())
         .close();
 
-    let h2 = Server::new(
+    let mut h2 = Server::new(
         SyncServiceFn::new(|request: http::Request<tower_h2::RecvBody>| {
             let (_, body) = request.into_parts();
             read_recv_body(body)
@@ -181,7 +180,7 @@ fn hello_rsp_body() {
         .recv_frame(frames::data(1, "hello back").eos())
         .close();
 
-    let h2 = Server::new(
+    let mut h2 = Server::new(
         SyncServiceFn::new(|_req| {
             let response = http::Response::builder()
                 .status(200)
@@ -218,7 +217,7 @@ fn hello_req_body() {
         .recv_frame(frames::headers(1).response(200).eos())
         .close();
 
-    let h2 = Server::new(
+    let mut h2 = Server::new(
         SyncServiceFn::new(|request: http::Request<tower_h2::RecvBody>| {
             let (_, body) = request.into_parts();
             read_recv_body(body)
@@ -318,7 +317,7 @@ fn respects_flow_control_eos_signal() {
         .recv_frame(frames::data(1, &frame[..]).eos())
         .close();
 
-    let h2 = Server::new(
+    let mut h2 = Server::new(
         SyncServiceFn::new(move |_request| {
             let response = http::Response::builder()
                 .status(200)
@@ -410,7 +409,7 @@ fn respects_flow_control_no_eos_signal() {
         .recv_frame(frames::data(1, &b""[..]).eos())
         .close();
 
-    let h2 = Server::new(
+    let mut h2 = Server::new(
         SyncServiceFn::new(move |_request| {
             let response = http::Response::builder()
                 .status(200)
@@ -500,7 +499,7 @@ fn flushing_body_cancels_if_reset() {
     let dropped = Rc::new(Cell::new(0));
     let dropped2 = dropped.clone();
 
-    let h2 = Server::new(
+    let mut h2 = Server::new(
         SyncServiceFn::new(move |_request| {
             let response = http::Response::builder()
                 .status(200)

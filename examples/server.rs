@@ -15,7 +15,7 @@ use http::Request;
 use tokio::net::TcpListener;
 use tokio::runtime::Runtime;
 use tower_h2::{Body, Server, RecvBody};
-use tower_service::{NewService, Service};
+use tower_service::{Service};
 
 type Response = http::Response<RspBody>;
 
@@ -79,14 +79,16 @@ impl Service<Request<RecvBody>> for Svc {
 
 #[derive(Debug)]
 struct NewSvc;
-impl NewService<Request<RecvBody>> for NewSvc {
-    type Response = Response;
-    type Error = h2::Error;
-    type InitError = ::std::io::Error;
-    type Service = Svc;
-    type Future = future::FutureResult<Svc, Self::InitError>;
+impl Service<()> for NewSvc {
+    type Response = Svc;
+    type Error = ::std::io::Error;
+    type Future = future::FutureResult<Svc, Self::Error>;
 
-    fn new_service(&self) -> Self::Future {
+    fn poll_ready(&mut self) -> Poll<(), Self::Error> {
+        Ok(().into())
+    }
+
+    fn call(&mut self, _target: ()) -> Self::Future {
         future::ok(Svc)
     }
 }
@@ -103,7 +105,7 @@ fn main() {
     let bind = TcpListener::bind(&addr).expect("bind");
 
     let serve = bind.incoming()
-        .fold((h2, reactor), |(h2, reactor), sock| {
+        .fold((h2, reactor), |(mut h2, reactor), sock| {
             if let Err(e) = sock.set_nodelay(true) {
                 return Err(e);
             }
