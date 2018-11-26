@@ -208,7 +208,7 @@ where T: AsyncRead + AsyncWrite,
       S: Body,
 {
     /// Start an HTTP/2.0 handshake with the provided builder
-    pub(crate) fn new(io: T, executor: E, builder: &Builder) -> Self {
+    pub fn new(io: T, executor: E, builder: &Builder) -> Self {
         let inner = builder.handshake(io);
 
         Handshake {
