@@ -1,7 +1,8 @@
 use {flush, Body, RecvBody};
 use buf::SendBuf;
 
-use tower_service::{MakeService, Service};
+use tower_service::Service;
+use tower_util::MakeService;
 
 use bytes::IntoBuf;
 use futures::{Async, Future, Poll, Stream};

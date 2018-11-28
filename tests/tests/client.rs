@@ -6,7 +6,8 @@ use tokio::runtime::current_thread::Runtime;
 use tokio_current_thread::TaskExecutor;
 use tower_h2::client::Connect;
 
-use tower_service::{MakeService, Service};
+use tower_service::Service;
+use tower_util::MakeService;
 use futures::future::{self, FutureResult};
 use std::cell::RefCell;
 
