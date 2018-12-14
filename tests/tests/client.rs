@@ -1,10 +1,9 @@
 use self::support::*;
-extern crate tokio_connect;
 
 use h2_support::{mock::Mock, prelude::*};
 use tokio::runtime::current_thread::Runtime;
 use tokio_current_thread::TaskExecutor;
-use tower_h2::client::Connect;
+use tower_h2::client::{Connect, ConnectService};
 
 use tower_service::Service;
 use tower_util::MakeService;
@@ -25,10 +24,10 @@ impl MockConn {
     }
 }
 
-impl tokio_connect::Connect for MockConn {
-    type Connected = Mock;
-    type Error = ::std::io::Error;
-    type Future = FutureResult<Mock, ::std::io::Error>;
+impl ConnectService<()> for MockConn {
+    type Response = Mock;
+    type Error = std::io::Error;
+    type Future = FutureResult<Mock, std::io::Error>;
 
     fn connect(&self) -> Self::Future {
         future::ok(self.conn.borrow_mut().take().expect("connected more than once!"))

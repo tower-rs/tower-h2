@@ -18,7 +18,7 @@ use string::{String, TryFrom};
 use tokio::net::TcpStream;
 use tokio::runtime::{Runtime, TaskExecutor};
 use tower_h2::{Body, RecvBody};
-use tower_h2::client::Connect;
+use tower_h2::client::{Connect, ConnectService};
 use tower_service::Service;
 use tower_util::MakeService;
 use h2::Reason;
@@ -33,10 +33,10 @@ fn main() {
 
     let addr = "[::1]:8888".parse().unwrap();
 
-    impl tokio_connect::Connect for Conn {
-        type Connected = TcpStream;
-        type Error = ::std::io::Error;
-        type Future = Box<Future<Item = TcpStream, Error = ::std::io::Error> + Send>;
+    impl ConnectService<SocketAddr> for Conn {
+        type Response = TcpStream;
+        type Error = std::io::Error;
+        type Future = Box<Future<Item = TcpStream, Error = std::io::Error> + Send>;
 
         fn connect(&self) -> Self::Future {
             let c = TcpStream::connect(&self.0)

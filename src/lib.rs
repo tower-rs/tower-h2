@@ -5,7 +5,6 @@ extern crate h2;
 extern crate http;
 #[macro_use]
 extern crate log;
-extern crate tokio_connect;
 extern crate tokio_io;
 extern crate tower_service;
 extern crate tower_util;
