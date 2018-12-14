@@ -7,21 +7,19 @@ pub trait ConnectService<A>{
     type Error;
     type Future: Future<Item =  Self::Response, Error = Self::Error>;
 
-    fn connect(&self) -> Self::Future;
+    fn connect(&mut self, target: A) -> Self::Future;
 }
 
 impl<A, C> ConnectService<A> for C
-    where C: Service<A>,
-          C::Response: AsyncRead + AsyncWrite,
+where 
+    C: Service<A>,
+    C::Response: AsyncRead + AsyncWrite,
 {
     type Response = C::Response;
     type Error = C::Error;
     type Future = C::Future;
 
-    // TODO: don't quite know why I need to suppress this, doesn't seem
-    // like it's needed for MakeService. 
-    #[allow(unconditional_recursion)]
-    fn connect(&self) -> Self::Future {
-        ConnectService::connect(self)
+    fn connect(&mut self, target: A) -> Self::Future {
+        self.call(target)
     }
 }

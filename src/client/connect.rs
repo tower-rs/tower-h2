@@ -33,7 +33,7 @@ pub struct Connect<A, C, E, S> {
 
 /// Completes with a Connection when the H2 connection has been initialized.
 pub struct ConnectFuture<A, C, E, S>
-where 
+where
     C: ConnectService<A>,
     S: Body,
 {
@@ -95,7 +95,7 @@ where
     }
 }
 
-impl<A, C, E, S> Service<()> for Connect<A, C, E, S>
+impl<A, C, E, S> Service<A> for Connect<A, C, E, S>
 where
     C: ConnectService<A> + 'static,
     E: Executor<Background<C::Response, S>> + Clone,
@@ -110,8 +110,8 @@ where
     }
 
     /// Obtains a Connection on a single plaintext h2 connection to a remote.
-    fn call(&mut self, _target: ()) -> Self::Future {
-        let state = State::Connect(self.inner.connect());
+    fn call(&mut self, target: A) -> Self::Future {
+        let state = State::Connect(self.inner.connect(target));
         let builder = self.builder.clone();
 
         ConnectFuture {

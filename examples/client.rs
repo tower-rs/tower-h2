@@ -23,7 +23,7 @@ use tower_service::Service;
 use tower_util::MakeService;
 use h2::Reason;
 
-pub struct Conn(SocketAddr);
+pub struct Conn;
 
 fn main() {
     drop(env_logger::init());
@@ -38,17 +38,16 @@ fn main() {
         type Error = std::io::Error;
         type Future = Box<Future<Item = TcpStream, Error = std::io::Error> + Send>;
 
-        fn connect(&self) -> Self::Future {
-            let c = TcpStream::connect(&self.0)
+        fn connect(&mut self, target: SocketAddr) -> Self::Future {
+            let c = TcpStream::connect(&target)
                 .and_then(|tcp| tcp.set_nodelay(true).map(move |_| tcp));
             Box::new(c)
         }
     }
 
-    let conn = Conn(addr);
-    let mut h2 = Connect::new(conn, Default::default(), executor.clone());
+    let mut h2 = Connect::new(Conn, Default::default(), executor.clone());
 
-    let done = h2.make_service(())
+    let done = h2.make_service(addr)
         .map_err(|_| Reason::REFUSED_STREAM.into())
         .and_then(move |h2| {
             Serial {

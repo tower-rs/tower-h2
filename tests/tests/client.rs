@@ -29,7 +29,7 @@ impl ConnectService<()> for MockConn {
     type Error = std::io::Error;
     type Future = FutureResult<Mock, std::io::Error>;
 
-    fn connect(&self) -> Self::Future {
+    fn connect(&mut self, _target: ()) -> Self::Future {
         future::ok(self.conn.borrow_mut().take().expect("connected more than once!"))
     }
 }
