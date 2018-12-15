@@ -3,11 +3,11 @@ use self::support::*;
 use h2_support::{mock::Mock, prelude::*};
 use tokio::runtime::current_thread::Runtime;
 use tokio_current_thread::TaskExecutor;
-use tower_h2::client::{Connect, ConnectService};
+use tower_h2::client::Connect;
 
 use tower_service::Service;
 use tower_util::MakeService;
-use futures::future::{self, FutureResult};
+use futures::{future::{self, FutureResult}, Poll, Async};
 use std::cell::RefCell;
 
 mod support;
@@ -24,13 +24,17 @@ impl MockConn {
     }
 }
 
-impl ConnectService<()> for MockConn {
+impl Service<()> for MockConn {
     type Response = Mock;
     type Error = std::io::Error;
     type Future = FutureResult<Mock, std::io::Error>;
 
-    fn connect(&mut self, _target: ()) -> Self::Future {
+    fn call(&mut self, _target: ()) -> Self::Future {
         future::ok(self.conn.borrow_mut().take().expect("connected more than once!"))
+    }
+
+    fn poll_ready(&mut self) -> Poll<(), Self::Error> {
+        Ok(Async::Ready(()))
     }
 }
 
