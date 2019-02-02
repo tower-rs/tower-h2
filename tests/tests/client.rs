@@ -25,12 +25,12 @@ impl MockConn {
     }
 }
 
-impl tokio_connect::Connect for MockConn {
+impl Service<()> for MockConn {
     type Connected = Mock;
     type Error = ::std::io::Error;
     type Future = FutureResult<Mock, ::std::io::Error>;
 
-    fn connect(&self) -> Self::Future {
+    fn call(&self, _: ()) -> Self::Future {
         future::ok(self.conn.borrow_mut().take().expect("connected more than once!"))
     }
 }

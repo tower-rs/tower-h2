@@ -2,11 +2,11 @@ use Body;
 use super::{Connection, Background, Handshake, HandshakeError};
 
 use tower_service::Service;
+use tower_util::MakeConnection;
 
 use futures::{Future, Poll};
 use futures::future::Executor;
 use h2;
-use tokio_connect;
 
 use std::error::Error;
 use std::fmt;
@@ -16,7 +16,7 @@ use std::marker::PhantomData;
 ///
 /// Has a builder-like API for configuring client connections.  Currently this only allows
 /// the configuration of TLS transport on new services created by this factory.
-pub struct Connect<C, E, S> {
+pub struct Connect<A, C, E, S> {
     /// Establish new session layer values (usually TCP sockets w/ TLS).
     inner: C,
 
@@ -28,18 +28,18 @@ pub struct Connect<C, E, S> {
     executor: E,
 
     /// The HTTP request body type.
-    _p: PhantomData<S>,
+    _p: PhantomData<(A, S)>,
 }
 
 /// Completes with a Connection when the H2 connection has been initialized.
-pub struct ConnectFuture<C, E, S>
-where C: tokio_connect::Connect,
+pub struct ConnectFuture<A, C, E, S>
+where C: MakeConnection<A>,
       S: Body,
 {
     /// Connect state. Starts in "Connect", which attempts to obtain the `io`
     /// handle from the `tokio_connect::Connect` instance. Then, with the
     /// handle, performs the HTTP/2.0 handshake.
-    state: State<C, E, S>,
+    state: State<A, C, E, S>,
 
     /// The executor that the `Connection` will use to spawn request body stream
     /// flushing tasks
@@ -50,12 +50,12 @@ where C: tokio_connect::Connect,
 }
 
 /// Represents the state of a `ConnectFuture`
-enum State<C, E, S>
-where C: tokio_connect::Connect,
+enum State<A, C, E, S>
+where C: MakeConnection<A>,
       S: Body,
 {
     Connect(C::Future),
-    Handshake(Handshake<C::Connected, E, S>),
+    Handshake(Handshake<C::Response, E, S>),
 }
 
 /// Error produced when establishing an H2 client connection.
@@ -71,10 +71,10 @@ pub enum ConnectError<T> {
 
 // ===== impl Connect =====
 
-impl<C, E, S> Connect<C, E, S>
+impl<A, C, E, S> Connect<A, C, E, S>
 where
-    C: tokio_connect::Connect,
-    E: Executor<Background<C::Connected, S>> + Clone,
+    C: MakeConnection<A>,
+    E: Executor<Background<C::Response, S>> + Clone,
     S: Body,
 {
     /// Create a new `Connect`.
@@ -93,23 +93,23 @@ where
     }
 }
 
-impl<C, E, S> Service<()> for Connect<C, E, S>
+impl<A, C, E, S> Service<A> for Connect<A, C, E, S>
 where
-    C: tokio_connect::Connect + 'static,
-    E: Executor<Background<C::Connected, S>> + Clone,
+    C: MakeConnection<A> + 'static,
+    E: Executor<Background<C::Response, S>> + Clone,
     S: Body + 'static,
 {
-    type Response = Connection<C::Connected, E, S>;
+    type Response = Connection<C::Response, E, S>;
     type Error = ConnectError<C::Error>;
-    type Future = ConnectFuture<C, E, S>;
+    type Future = ConnectFuture<A, C, E, S>;
 
     fn poll_ready(&mut self) -> Poll<(), Self::Error> {
         Ok(().into())
     }
 
     /// Obtains a Connection on a single plaintext h2 connection to a remote.
-    fn call(&mut self, _target: ()) -> Self::Future {
-        let state = State::Connect(self.inner.connect());
+    fn call(&mut self, target: A) -> Self::Future {
+        let state = State::Connect(self.inner.make_connection(target));
         let builder = self.builder.clone();
 
         ConnectFuture {
@@ -122,13 +122,13 @@ where
 
 // ===== impl ConnectFuture =====
 
-impl<C, E, S> Future for ConnectFuture<C, E, S>
+impl<A, C, E, S> Future for ConnectFuture<A, C, E, S>
 where
-    C: tokio_connect::Connect,
-    E: Executor<Background<C::Connected, S>> + Clone,
+    C: MakeConnection<A>,
+    E: Executor<Background<C::Response, S>> + Clone,
     S: Body,
 {
-    type Item = Connection<C::Connected, E, S>;
+    type Item = Connection<C::Response, E, S>;
     type Error = ConnectError<C::Error>;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
