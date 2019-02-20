@@ -8,6 +8,7 @@ use tower_h2::client::Connect;
 
 use tower_service::Service;
 use tower_util::MakeService;
+use futures::Poll;
 use futures::future::{self, FutureResult};
 use std::cell::RefCell;
 
@@ -26,11 +27,15 @@ impl MockConn {
 }
 
 impl Service<()> for MockConn {
-    type Connected = Mock;
+    type Response = Mock;
     type Error = ::std::io::Error;
     type Future = FutureResult<Mock, ::std::io::Error>;
 
-    fn call(&self, _: ()) -> Self::Future {
+    fn poll_ready(&mut self) -> Poll<(), Self::Error> {
+        Ok(().into())
+    }
+
+    fn call(&mut self, _: ()) -> Self::Future {
         future::ok(self.conn.borrow_mut().take().expect("connected more than once!"))
     }
 }
