@@ -33,12 +33,16 @@ fn main() {
 
     let addr = "[::1]:8888".parse().unwrap();
 
-    impl tokio_connect::Connect for Conn {
-        type Connected = TcpStream;
+    impl Service<()> for Conn {
+        type Response = TcpStream;
         type Error = ::std::io::Error;
         type Future = Box<Future<Item = TcpStream, Error = ::std::io::Error> + Send>;
 
-        fn connect(&self) -> Self::Future {
+        fn poll_ready(&mut self) -> Poll<(), Self::Error> {
+            Ok(().into())
+        }
+
+        fn call(&mut self, _: ()) -> Self::Future {
             let c = TcpStream::connect(&self.0)
                 .and_then(|tcp| tcp.set_nodelay(true).map(move |_| tcp));
             Box::new(c)
