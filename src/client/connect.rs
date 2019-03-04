@@ -76,6 +76,7 @@ where
     C: MakeConnection<A>,
     E: Executor<Background<C::Response, S>> + Clone,
     S: Body,
+    S::Item: 'static,
 {
     /// Create a new `Connect`.
     ///
@@ -127,6 +128,7 @@ where
     C: MakeConnection<A>,
     E: Executor<Background<C::Response, S>> + Clone,
     S: Body,
+    S::Item: 'static,
 {
     type Item = Connection<C::Response, E, S>;
     type Error = ConnectError<C::Error>;

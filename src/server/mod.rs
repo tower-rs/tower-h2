@@ -4,7 +4,6 @@ use buf::SendBuf;
 use tower_service::Service;
 use tower_util::MakeService;
 
-use bytes::IntoBuf;
 use futures::{Async, Future, Poll, Stream};
 use futures::future::{Executor, Either, Join, MapErr};
 use h2::{self, Reason};
@@ -50,17 +49,17 @@ where T: AsyncRead + AsyncWrite,
 {
     /// Establish the HTTP/2.0 connection and get a service to process inbound
     /// requests.
-    Init(Init<T, SendBuf<<B::Data as IntoBuf>::Buf>, S::Future, S::MakeError>),
+    Init(Init<T, SendBuf<B::Item>, S::Future, S::MakeError>),
 
     /// Both the HTTP/2.0 connection and the service are ready.
     Ready {
-        connection: Accept<T, SendBuf<<B::Data as IntoBuf>::Buf>>,
+        connection: Accept<T, SendBuf<B::Item>>,
         service: S::Service,
     },
 
     /// The service has closed, so poll until connection is closed.
     GoAway {
-        connection: Accept<T, SendBuf<<B::Data as IntoBuf>::Buf>>,
+        connection: Accept<T, SendBuf<B::Item>>,
         error: Error<S>,
     },
 
@@ -87,7 +86,7 @@ enum BackgroundState<T, B>
 where B: Body,
 {
     Respond {
-        respond: SendResponse<SendBuf<<B::Data as IntoBuf>::Buf>>,
+        respond: SendResponse<SendBuf<B::Item>>,
         response: T,
     },
     Flush(flush::Flush<B>),
@@ -141,6 +140,7 @@ where
 impl<S, E, B> Server<S, E, B>
 where S: MakeService<(), Request<RecvBody>, Response = Response<B>>,
       B: Body,
+      B::Item: 'static,
       E: Clone,
 {
     /// Produces a future that is satisfied once the h2 connection has been initialized.
@@ -385,7 +385,7 @@ impl<T, B> Background<T, B>
 where T: Future,
       B: Body,
 {
-    fn new(respond: SendResponse<SendBuf<<B::Data as IntoBuf>::Buf>>, response: T)
+    fn new(respond: SendResponse<SendBuf<B::Item>>, response: T)
         -> Self
     {
         Background {
@@ -438,19 +438,10 @@ where T: Future<Item = Response<B>>,
 
                     let (parts, body) = response.into_parts();
 
-                    // Check if the response is immediately an end-of-stream.
-                    let end_stream = body.is_end_stream();
-                    trace!("send_response eos={} {:?}", end_stream, parts);
-
                     // Try sending the response.
                     let response = Response::from_parts(parts, ());
-                    match respond.send_response(response, end_stream) {
+                    match respond.send_response(response, false) {
                         Ok(stream) => {
-                            if end_stream {
-                                // Nothing more to do
-                                return Ok(().into());
-                            }
-
                             // Transition to flushing the body
                             Flush::new(body, stream)
                         }

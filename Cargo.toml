@@ -25,6 +25,7 @@ log = "0.4"
 tokio-connect = { git = "https://github.com/carllerche/tokio-connect" }
 tokio-io = "0.1"
 tower-service = { git = "https://github.com/tower-rs/tower" }
+tower-http-service = { git = "https://github.com/tower-rs/tower-http" }
 tower-util = { git = "https://github.com/tower-rs/tower" }
 
 [dev-dependencies]

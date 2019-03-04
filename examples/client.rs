@@ -71,7 +71,7 @@ fn main() {
 /// Avoids overflowing max concurrent streams
 struct Serial {
     count: usize,
-    h2: tower_h2::client::Connection<TcpStream, TaskExecutor, ()>,
+    h2: tower_h2::client::Connection<TcpStream, TaskExecutor, tower_h2::NoBody>,
     pending: Option<Box<Future<Item = (), Error = tower_h2::client::Error> + Send>>,
 }
 
@@ -106,12 +106,12 @@ impl Future for Serial {
     }
 }
 
-fn mkreq() -> Request<()> {
+fn mkreq() -> Request<tower_h2::NoBody> {
     Request::builder()
         .method("GET")
         .uri("http://[::1]:8888/")
         .version(http::Version::HTTP_2)
-        .body(())
+        .body(tower_h2::NoBody)
         .unwrap()
 }
 
@@ -135,7 +135,7 @@ impl Future for ReadResponse {
     type Error = tower_h2::client::Error;
     fn poll(&mut self) -> Poll<(), Self::Error> {
         loop {
-            match try_ready!(self.body.poll_data()) {
+            match try_ready!(self.body.poll_buf()) {
                 None => return Ok(Async::Ready(())),
                 Some(b) => {
                     let b: Bytes = b.into();
