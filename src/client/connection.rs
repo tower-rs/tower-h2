@@ -3,7 +3,6 @@ use super::Background;
 use buf::SendBuf;
 use flush::Flush;
 
-use bytes::IntoBuf;
 use futures::{Future, Poll, Async};
 use futures::future::Executor;
 use h2;
@@ -19,7 +18,7 @@ use std::marker::PhantomData;
 pub struct Connection<T, E, S>
 where S: Body,
 {
-    client: SendRequest<SendBuf<<S::Data as IntoBuf>::Buf>>,
+    client: SendRequest<SendBuf<S::Item>>,
     executor: E,
     _p: PhantomData<(T, S)>,
 }
@@ -28,7 +27,7 @@ where S: Body,
 pub struct Handshake<T, E, S>
 where S: Body,
 {
-    inner: h2::client::Handshake<T, SendBuf<<S::Data as IntoBuf>::Buf>>,
+    inner: h2::client::Handshake<T, SendBuf<S::Item>>,
     executor: E,
 }
 
@@ -76,12 +75,12 @@ enum Kind {
 
 impl<T, E, S> Connection<T, E, S>
 where S: Body,
-      S::Data: IntoBuf + 'static,
+      S::Item: 'static,
       E: Executor<Background<T, S>>,
       T: AsyncRead + AsyncWrite,
 {
     /// Builds Connection on an H2 client connection.
-    pub(crate) fn new(client: SendRequest<SendBuf<<S::Data as IntoBuf>::Buf>>, executor: E)
+    pub(crate) fn new(client: SendRequest<SendBuf<S::Item>>, executor: E)
         -> Self
     {
         let _p = PhantomData;
@@ -114,7 +113,7 @@ where S: Body,
 
 impl<T, E, S> Service<Request<S>> for Connection<T, E, S>
 where S: Body + 'static,
-      S::Data: IntoBuf + 'static,
+      S::Item: 'static,
       E: Executor<Background<T, S>>,
       T: AsyncRead + AsyncWrite,
 {
@@ -134,12 +133,11 @@ where S: Body + 'static,
         let (parts, body) = request.into_parts();
         let request = http::Request::from_parts(parts, ());
 
-        // If there is no body, then there is no point spawning a task to flush
+        // TODO: If there is no body, then there is no point spawning a task to flush
         // it.
-        let end_of_stream = body.is_end_stream();
 
         // Initiate the H2 request
-        let res = self.client.send_request(request, end_of_stream);
+        let res = self.client.send_request(request, false);
 
         let (response, send_body) = match res {
             Ok(success) => success,
@@ -150,15 +148,13 @@ where S: Body + 'static,
             }
         };
 
-        if !end_of_stream {
-            let flush = Flush::new(body, send_body);
-            let res = self.executor.execute(Background::flush(flush));
+        let flush = Flush::new(body, send_body);
+        let res = self.executor.execute(Background::flush(flush));
 
-            if let Err(_) = res {
-                let e = Error { kind: Kind::Spawn };
-                let inner = Inner::Error(Some(e));
-                return ResponseFuture { inner };
-            }
+        if let Err(_) = res {
+            let e = Error { kind: Kind::Spawn };
+            let inner = Inner::Error(Some(e));
+            return ResponseFuture { inner };
         }
 
         ResponseFuture { inner: Inner::Inner(response) }
@@ -206,6 +202,7 @@ impl ResponseFuture {
 impl<T, E, S> Handshake<T, E, S>
 where T: AsyncRead + AsyncWrite,
       S: Body,
+      S::Item: 'static,
 {
     /// Start an HTTP/2.0 handshake with the provided builder
     pub(crate) fn new(io: T, executor: E, builder: &Builder) -> Self {
@@ -222,6 +219,7 @@ impl<T, E, S> Future for Handshake<T, E, S>
 where T: AsyncRead + AsyncWrite,
       E: Executor<Background<T, S>> + Clone,
       S: Body,
+      S::Item: 'static,
 {
     type Item = Connection<T, E, S>;
     type Error = HandshakeError;

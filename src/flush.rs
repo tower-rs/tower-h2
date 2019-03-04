@@ -1,7 +1,6 @@
 use Body;
 use buf::SendBuf;
 
-use bytes::IntoBuf;
 use futures::{Future, Poll, Async};
 use h2::{self, SendStream};
 use http::HeaderMap;
@@ -10,7 +9,7 @@ use http::HeaderMap;
 pub(crate) struct Flush<S>
 where S: Body,
 {
-    h2: SendStream<SendBuf<<S::Data as IntoBuf>::Buf>>,
+    h2: SendStream<SendBuf<S::Item>>,
     body: S,
     state: FlushState,
 }
@@ -29,9 +28,10 @@ enum DataOrTrailers<B> {
 // ===== impl Flush =====
 
 impl<S> Flush<S>
-where S: Body,
+where
+    S: Body,
 {
-    pub fn new(src: S, dst: SendStream<SendBuf<<S::Data as IntoBuf>::Buf>>)
+    pub fn new(src: S, dst: SendStream<SendBuf<S::Item>>)
         -> Self
     {
         Flush {
@@ -48,14 +48,7 @@ where S: Body,
         loop {
             match try_ready!(self.poll_body()) {
                 Some(Data(buf)) => {
-                    let eos = self.body.is_end_stream();
-
-                    self.h2.send_data(SendBuf::new(buf.into_buf()), eos)?;
-
-                    if eos {
-                        self.state = FlushState::Done;
-                        return Ok(Async::Ready(()));
-                    }
+                    self.h2.send_data(SendBuf::new(buf), false)?;
                 }
                 Some(Trailers(trailers)) => {
                     self.h2.send_trailers(trailers)?;
@@ -74,7 +67,7 @@ where S: Body,
 
     /// Get the next message to write, either a data frame or trailers.
     fn poll_body(&mut self)
-        -> Poll<Option<DataOrTrailers<S::Data>>, h2::Error>
+        -> Poll<Option<DataOrTrailers<S::Item>>, h2::Error>
     {
         loop {
             match self.state {
@@ -124,7 +117,7 @@ where S: Body,
 
 
 
-                    if let Some(data) = try_ready!(self.body.poll_data()) {
+                    if let Some(data) = try_ready!(self.body.poll_buf().map_err(|_| h2::Reason::INTERNAL_ERROR)) {
                         return Ok(Async::Ready(Some(DataOrTrailers::Data(data))));
                     } else {
                         // Release all capacity back to the connection
@@ -148,7 +141,10 @@ where S: Body,
                             // before we get a RST_STREAM.
                         }
                     }
-                    let trailers = try_ready!(self.body.poll_trailers());
+                    let trailers = try_ready!(self.body.poll_trailers().map_err(|_| {
+                        // TODO: do something better the error?
+                        h2::Reason::INTERNAL_ERROR
+                    }));
                     self.state = FlushState::Done;
                     if let Some(trailers) = trailers {
                         return Ok(Async::Ready(Some(DataOrTrailers::Trailers(trailers))));

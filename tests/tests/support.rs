@@ -9,7 +9,7 @@ pub extern crate tower_h2;
 pub extern crate tower_service;
 pub extern crate tower_util;
 
-use bytes::{Bytes, Buf};
+use bytes::{Bytes, Buf, IntoBuf};
 use tower_h2::{Body, RecvBody};
 use futures::{Future, Poll, Async};
 
@@ -34,17 +34,17 @@ impl SendBody {
 }
 
 impl Body for SendBody {
-    type Data = Bytes;
-
-    fn is_end_stream(&self) -> bool {
-        self.0.as_ref().map(|b| b.is_empty()).unwrap_or(true)
-    }
-
-    fn poll_data(&mut self) -> Poll<Option<Bytes>, h2::Error> {
+    type Item = <Bytes as IntoBuf>::Buf;
+    type Error = self::h2::Error;
+    fn poll_buf(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         let data = self.0
             .take()
-            .and_then(|b| if b.is_empty() { None } else { Some(b) });
+            .and_then(|b| if b.is_empty() { None } else { Some(b.into_buf()) });
         Ok(Async::Ready(data))
+    }
+
+    fn poll_trailers(&mut self) -> Poll<Option<http::HeaderMap>, Self::Error> {
+        Ok(None.into())
     }
 }
 
@@ -65,7 +65,7 @@ impl Future for ReadRecvBody {
     type Error = self::h2::Error;
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         loop {
-            self.bytes = match try_ready!(self.body.poll_data()) {
+            self.bytes = match try_ready!(self.body.poll_buf()) {
                 None => return Ok(Async::Ready(self.bytes.take().map(Buf::collect))),
                 Some(b) => if self.bytes.as_ref().is_none() {
                     Some(Box::new(b))

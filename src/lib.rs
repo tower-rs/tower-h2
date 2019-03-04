@@ -7,6 +7,7 @@ extern crate http;
 extern crate log;
 extern crate tokio_connect;
 extern crate tokio_io;
+extern crate tower_http_service;
 extern crate tower_service;
 extern crate tower_util;
 
@@ -17,18 +18,8 @@ mod body;
 mod buf;
 mod flush;
 mod recv_body;
-mod service;
 
-pub use body::{Body, BoxBody, UnsyncBoxBody};
+pub use body::NoBody;
 pub use recv_body::{RecvBody, Data};
 pub use server::Server;
-pub use service::HttpService;
-
-mod sealed {
-    /// Private trait to this crate to prevent traits from being implemented in
-    /// downstream crates.
-    pub trait Sealed {}
-    /// Like `Sealed` but for types such as `HttpService` which would otherwise
-    /// have unconstrained type parameters in blanket impls of Sealed.
-    pub trait GenericSealed1<A> {}
-}
+pub use tower_http_service::{Body, HttpService};

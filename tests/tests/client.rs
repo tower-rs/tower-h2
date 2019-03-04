@@ -5,6 +5,7 @@ use h2_support::{mock::Mock, prelude::*};
 use tokio::runtime::current_thread::Runtime;
 use tokio_current_thread::TaskExecutor;
 use tower_h2::client::Connect;
+use tower_h2::NoBody;
 
 use tower_service::Service;
 use tower_util::MakeService;
@@ -53,8 +54,8 @@ fn hello() {
         .recv_frame(
             frames::headers(1)
                 .request("GET", "https://example.com/")
-                .eos(),
         )
+        .recv_frame(frames::data(1, "").eos())
         .send_frame(frames::headers(1).response(200).eos())
         .close();
 
@@ -67,7 +68,7 @@ fn hello() {
             h2.call(http::Request::builder()
                 .method("GET")
                 .uri("https://example.com/")
-                .body(())
+                .body(NoBody)
                 .unwrap())
         })
         .map(|rsp| {
@@ -95,7 +96,8 @@ fn hello_req_body() {
             frames::headers(1)
                 .request("GET", "https://example.com/")
         )
-        .recv_frame(frames::data(1, "hello world").eos())
+        .recv_frame(frames::data(1, "hello world"))
+        .recv_frame(frames::data(1, "").eos())
         .send_frame(frames::headers(1).response(200).eos())
         .close();
 
@@ -135,8 +137,8 @@ fn hello_rsp_body() {
         .recv_frame(
             frames::headers(1)
                 .request("GET", "https://example.com/")
-                .eos()
         )
+        .recv_frame(frames::data(1, "").eos())
         .send_frame(frames::headers(1).response(200))
         .send_frame(frames::data(1, "hello world").eos())
         .close();
@@ -150,7 +152,7 @@ fn hello_rsp_body() {
             h2.call(http::Request::builder()
                 .method("GET")
                 .uri("https://example.com/")
-                .body(())
+                .body(NoBody)
                 .unwrap())
         })
         .and_then(|rsp| {
@@ -181,7 +183,8 @@ fn hello_bodies() {
             frames::headers(1)
                 .request("GET", "https://example.com/")
         )
-        .recv_frame(frames::data(1, "hello world").eos())
+        .recv_frame(frames::data(1, "hello world"))
+        .recv_frame(frames::data(1, "").eos())
         .send_frame(frames::headers(1).response(200))
         .send_frame(frames::data(1, "hello"))
         .send_frame(frames::data(1, " back!").eos())

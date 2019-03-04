@@ -4,7 +4,7 @@ use bytes::Bytes;
 use h2_support::prelude::*;
 use tokio::runtime::current_thread::Runtime;
 use tokio_current_thread::TaskExecutor;
-use tower_h2::Body;
+use tower_h2::{Body, NoBody};
 use tower_h2::server::Server;
 
 mod support;
@@ -94,14 +94,15 @@ fn hello() {
                 .request("GET", "https://example.com/")
                 .eos(),
         )
-        .recv_frame(frames::headers(1).response(200).eos())
+        .recv_frame(frames::headers(1).response(200))
+        .recv_frame(frames::data(1, "").eos())
         .close();
 
     let mut h2 = Server::new(
         SyncServiceFn::new(|_request| {
             let response = http::Response::builder()
                 .status(200)
-                .body(())
+                .body(NoBody)
                 .unwrap();
 
             Ok::<_, ()>(response.into())
@@ -134,7 +135,8 @@ fn hello_bodies() {
         )
         .recv_frame(frames::headers(1).response(200))
 
-        .recv_frame(frames::data(1, "hello back").eos())
+        .recv_frame(frames::data(1, "hello back"))
+        .recv_frame(frames::data(1, "").eos())
         .close();
 
     let mut h2 = Server::new(
@@ -177,7 +179,8 @@ fn hello_rsp_body() {
                 .eos()
         )
         .recv_frame(frames::headers(1).response(200))
-        .recv_frame(frames::data(1, "hello back").eos())
+        .recv_frame(frames::data(1, "hello back"))
+        .recv_frame(frames::data(1, "").eos())
         .close();
 
     let mut h2 = Server::new(
@@ -214,7 +217,8 @@ fn hello_req_body() {
         )
         .send_frame(frames::data(1, "hello "))
         .send_frame(frames::data(1, "world").eos())
-        .recv_frame(frames::headers(1).response(200).eos())
+        .recv_frame(frames::headers(1).response(200))
+        .recv_frame(frames::data(1, "").eos())
         .close();
 
     let mut h2 = Server::new(
@@ -226,7 +230,7 @@ fn hello_req_body() {
 
                     let response = http::Response::builder()
                         .status(200)
-                        .body(())
+                        .body(NoBody)
                         .unwrap();
                     Ok(response)
                 })
@@ -265,21 +269,23 @@ fn respects_flow_control_eos_signal() {
     }
 
     impl Body for Zeros {
-        type Data = Bytes;
+        type Item = <Bytes as IntoBuf>::Buf;
+        type Error = support::h2::Error;
 
-        fn is_end_stream(&self) -> bool {
-            self.cnt.get() == 5
-        }
-
-        fn poll_data(&mut self) -> Poll<Option<Self::Data>, support::h2::Error> {
+        fn poll_buf(&mut self) -> Poll<Option<Self::Item>, support::h2::Error> {
             let cnt = self.cnt.get();
 
             if cnt == 5 {
-                panic!("the library should not have called this");
+                //TODO: panic!("the library should not have called this");
+                Ok(None.into())
             } else {
                 self.cnt.set(cnt + 1);
-                Ok(Some(self.buf.clone()).into())
+                Ok(Some(self.buf.clone().into_buf()).into())
             }
+        }
+
+        fn poll_trailers(&mut self) -> Poll<Option<http::HeaderMap>, Self::Error> {
+            Ok(None.into())
         }
     }
 
@@ -314,7 +320,8 @@ fn respects_flow_control_eos_signal() {
             frames::window_update(1, 1_000_000)
         )
         .recv_frame(frames::data(1, &frame[..1]))
-        .recv_frame(frames::data(1, &frame[..]).eos())
+        .recv_frame(frames::data(1, &frame[..]))
+        .recv_frame(frames::data(1, "").eos())
         .close();
 
     let mut h2 = Server::new(
@@ -360,17 +367,22 @@ fn respects_flow_control_no_eos_signal() {
     }
 
     impl Body for Zeros {
-        type Data = Bytes;
+        type Item = <Bytes as IntoBuf>::Buf;
+        type Error = support::h2::Error;
 
-        fn poll_data(&mut self) -> Poll<Option<Self::Data>, support::h2::Error> {
+        fn poll_buf(&mut self) -> Poll<Option<Self::Item>, support::h2::Error> {
             let cnt = self.cnt.get();
 
             if cnt == 5 {
                 Ok(None.into())
             } else {
                 self.cnt.set(cnt + 1);
-                Ok(Some(self.buf.clone()).into())
+                Ok(Some(self.buf.clone().into_buf()).into())
             }
+        }
+
+        fn poll_trailers(&mut self) -> Poll<Option<http::HeaderMap>, Self::Error> {
+            Ok(None.into())
         }
     }
 
@@ -461,19 +473,20 @@ fn flushing_body_cancels_if_reset() {
     }
 
     impl Body for Zeros {
-        type Data = Bytes;
+        type Item = <Bytes as IntoBuf>::Buf;
+        type Error = support::h2::Error;
 
-        fn is_end_stream(&self) -> bool {
-            false
-        }
-
-        fn poll_data(&mut self) -> Poll<Option<Self::Data>, support::h2::Error> {
+        fn poll_buf(&mut self) -> Poll<Option<Self::Item>, support::h2::Error> {
             if self.cnt == 1 {
                 Ok(Async::NotReady)
             } else {
                 self.cnt += 1;
-                Ok(Some(self.buf.clone()).into())
+                Ok(Some(self.buf.clone().into_buf()).into())
             }
+        }
+
+        fn poll_trailers(&mut self) -> Poll<Option<http::HeaderMap>, Self::Error> {
+            Ok(None.into())
         }
     }
 
