@@ -14,5 +14,5 @@ tokio = "0.1.8"
 tokio-current-thread = "0.1.1"
 tokio-connect = { git = "https://github.com/carllerche/tokio-connect" }
 tower-h2 = { path = ".." }
-tower-service = { git = "https://github.com/tower-rs/tower" }
+tower-service = "0.2"
 tower-util = { git = "https://github.com/tower-rs/tower"  }
