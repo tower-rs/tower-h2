@@ -133,11 +133,12 @@ where S: Body + 'static,
         let (parts, body) = request.into_parts();
         let request = http::Request::from_parts(parts, ());
 
-        // TODO: If there is no body, then there is no point spawning a task to flush
+        // If there is no body, then there is no point spawning a task to flush
         // it.
+        let eos = body.is_end_stream();
 
         // Initiate the H2 request
-        let res = self.client.send_request(request, false);
+        let res = self.client.send_request(request, eos);
 
         let (response, send_body) = match res {
             Ok(success) => success,
@@ -148,13 +149,15 @@ where S: Body + 'static,
             }
         };
 
-        let flush = Flush::new(body, send_body);
-        let res = self.executor.execute(Background::flush(flush));
+        if !eos {
+            let flush = Flush::new(body, send_body);
+            let res = self.executor.execute(Background::flush(flush));
 
-        if let Err(_) = res {
-            let e = Error { kind: Kind::Spawn };
-            let inner = Inner::Error(Some(e));
-            return ResponseFuture { inner };
+            if let Err(_) = res {
+                let e = Error { kind: Kind::Spawn };
+                let inner = Inner::Error(Some(e));
+                return ResponseFuture { inner };
+            }
         }
 
         ResponseFuture { inner: Inner::Inner(response) }

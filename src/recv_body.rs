@@ -35,6 +35,13 @@ impl Body for RecvBody {
     type Item = Data;
     type Error = h2::Error;
 
+    fn is_end_stream(&self) -> bool {
+        match self.inner {
+            Some(ref inner) => inner.is_end_stream(),
+            None => true,
+        }
+    }
+
     fn poll_buf(&mut self) -> Poll<Option<Self::Item>, h2::Error> {
         match self.inner {
             Some(ref mut inner) => {

@@ -12,6 +12,10 @@ impl Body for NoBody {
     type Item = NoData;
     type Error = h2::Error;
 
+    fn is_end_stream(&self) -> bool {
+        true
+    }
+
     fn poll_buf(&mut self) -> Poll<Option<Self::Item>, h2::Error> {
         Ok(None.into())
     }

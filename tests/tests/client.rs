@@ -54,8 +54,8 @@ fn hello() {
         .recv_frame(
             frames::headers(1)
                 .request("GET", "https://example.com/")
+                .eos()
         )
-        .recv_frame(frames::data(1, "").eos())
         .send_frame(frames::headers(1).response(200).eos())
         .close();
 
@@ -96,8 +96,7 @@ fn hello_req_body() {
             frames::headers(1)
                 .request("GET", "https://example.com/")
         )
-        .recv_frame(frames::data(1, "hello world"))
-        .recv_frame(frames::data(1, "").eos())
+        .recv_frame(frames::data(1, "hello world").eos())
         .send_frame(frames::headers(1).response(200).eos())
         .close();
 
@@ -137,8 +136,8 @@ fn hello_rsp_body() {
         .recv_frame(
             frames::headers(1)
                 .request("GET", "https://example.com/")
+                .eos()
         )
-        .recv_frame(frames::data(1, "").eos())
         .send_frame(frames::headers(1).response(200))
         .send_frame(frames::data(1, "hello world").eos())
         .close();
@@ -183,8 +182,7 @@ fn hello_bodies() {
             frames::headers(1)
                 .request("GET", "https://example.com/")
         )
-        .recv_frame(frames::data(1, "hello world"))
-        .recv_frame(frames::data(1, "").eos())
+        .recv_frame(frames::data(1, "hello world").eos())
         .send_frame(frames::headers(1).response(200))
         .send_frame(frames::data(1, "hello"))
         .send_frame(frames::data(1, " back!").eos())

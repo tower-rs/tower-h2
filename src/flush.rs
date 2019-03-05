@@ -48,7 +48,14 @@ where
         loop {
             match try_ready!(self.poll_body()) {
                 Some(Data(buf)) => {
-                    self.h2.send_data(SendBuf::new(buf), false)?;
+                    let eos = self.body.is_end_stream();
+
+                    self.h2.send_data(SendBuf::new(buf), eos)?;
+
+                    if eos {
+                        self.state = FlushState::Done;
+                        return Ok(Async::Ready(()));
+                    }
                 }
                 Some(Trailers(trailers)) => {
                     self.h2.send_trailers(trailers)?;

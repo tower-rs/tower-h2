@@ -36,6 +36,11 @@ impl SendBody {
 impl Body for SendBody {
     type Item = <Bytes as IntoBuf>::Buf;
     type Error = self::h2::Error;
+
+    fn is_end_stream(&self) -> bool {
+        self.0.as_ref().map(|b| b.is_empty()).unwrap_or(true)
+    }
+
     fn poll_buf(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         let data = self.0
             .take()
