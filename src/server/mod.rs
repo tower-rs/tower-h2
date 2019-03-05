@@ -438,10 +438,18 @@ where T: Future<Item = Response<B>>,
 
                     let (parts, body) = response.into_parts();
 
+                    // Check if the response is immediately an end-of-stream.
+                    let eos = body.is_end_stream();
+
                     // Try sending the response.
                     let response = Response::from_parts(parts, ());
-                    match respond.send_response(response, false) {
+                    match respond.send_response(response, eos) {
                         Ok(stream) => {
+                            if eos {
+                                // Nothing more to do
+                                return Ok(().into());
+                            }
+
                             // Transition to flushing the body
                             Flush::new(body, stream)
                         }

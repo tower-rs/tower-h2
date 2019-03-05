@@ -94,8 +94,7 @@ fn hello() {
                 .request("GET", "https://example.com/")
                 .eos(),
         )
-        .recv_frame(frames::headers(1).response(200))
-        .recv_frame(frames::data(1, "").eos())
+        .recv_frame(frames::headers(1).response(200).eos())
         .close();
 
     let mut h2 = Server::new(
@@ -135,8 +134,7 @@ fn hello_bodies() {
         )
         .recv_frame(frames::headers(1).response(200))
 
-        .recv_frame(frames::data(1, "hello back"))
-        .recv_frame(frames::data(1, "").eos())
+        .recv_frame(frames::data(1, "hello back").eos())
         .close();
 
     let mut h2 = Server::new(
@@ -179,8 +177,7 @@ fn hello_rsp_body() {
                 .eos()
         )
         .recv_frame(frames::headers(1).response(200))
-        .recv_frame(frames::data(1, "hello back"))
-        .recv_frame(frames::data(1, "").eos())
+        .recv_frame(frames::data(1, "hello back").eos())
         .close();
 
     let mut h2 = Server::new(
@@ -217,8 +214,7 @@ fn hello_req_body() {
         )
         .send_frame(frames::data(1, "hello "))
         .send_frame(frames::data(1, "world").eos())
-        .recv_frame(frames::headers(1).response(200))
-        .recv_frame(frames::data(1, "").eos())
+        .recv_frame(frames::headers(1).response(200).eos())
         .close();
 
     let mut h2 = Server::new(
@@ -272,12 +268,15 @@ fn respects_flow_control_eos_signal() {
         type Item = <Bytes as IntoBuf>::Buf;
         type Error = support::h2::Error;
 
+        fn is_end_stream(&self) -> bool {
+            self.cnt.get() == 5
+        }
+
         fn poll_buf(&mut self) -> Poll<Option<Self::Item>, support::h2::Error> {
             let cnt = self.cnt.get();
 
             if cnt == 5 {
-                //TODO: panic!("the library should not have called this");
-                Ok(None.into())
+                panic!("the library should not have called this");
             } else {
                 self.cnt.set(cnt + 1);
                 Ok(Some(self.buf.clone().into_buf()).into())
@@ -320,8 +319,7 @@ fn respects_flow_control_eos_signal() {
             frames::window_update(1, 1_000_000)
         )
         .recv_frame(frames::data(1, &frame[..1]))
-        .recv_frame(frames::data(1, &frame[..]))
-        .recv_frame(frames::data(1, "").eos())
+        .recv_frame(frames::data(1, &frame[..]).eos())
         .close();
 
     let mut h2 = Server::new(
