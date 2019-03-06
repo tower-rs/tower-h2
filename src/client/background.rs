@@ -43,6 +43,7 @@ impl<T, S> Future for Background<T, S>
 where T: AsyncRead + AsyncWrite,
       S: Body,
       S::Item: 'static,
+      S::Error: Into<Box<dyn std::error::Error>>,
 {
     type Item = ();
     type Error = ();

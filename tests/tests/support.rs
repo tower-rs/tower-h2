@@ -1,6 +1,6 @@
 pub extern crate bytes;
 pub extern crate futures;
-pub extern crate h2;
+extern crate h2;
 pub extern crate h2_support;
 pub extern crate http;
 pub extern crate tokio;

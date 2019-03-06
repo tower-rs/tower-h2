@@ -6,7 +6,7 @@ use tower_util::MakeService;
 
 use futures::{Async, Future, Poll, Stream};
 use futures::future::{Executor, Either, Join, MapErr};
-use h2::{self, Reason};
+use h2;
 use h2::server::{Connection as Accept, Handshake, SendResponse};
 use http::{Request, Response};
 use tokio_io::{AsyncRead, AsyncWrite};
@@ -122,7 +122,9 @@ enum PollMain {
 impl<S, E, B> Server<S, E, B>
 where
     S: MakeService<(), Request<RecvBody>, Response = Response<B>>,
+    S::Error: Into<Box<dyn std::error::Error>>,
     B: Body + 'static,
+    B::Error: Into<Box<dyn std::error::Error>>,
     E: Clone
         + Executor<Background<<S::Service as Service<Request<RecvBody>>>::Future, B>>,
 {
@@ -141,6 +143,7 @@ impl<S, E, B> Server<S, E, B>
 where S: MakeService<(), Request<RecvBody>, Response = Response<B>>,
       B: Body,
       B::Item: 'static,
+      B::Error: Into<Box<dyn std::error::Error>>,
       E: Clone,
 {
     /// Produces a future that is satisfied once the h2 connection has been initialized.
@@ -195,8 +198,10 @@ where
 impl<T, S, E, B, F> Future for Connection<T, S, E, B, F>
 where T: AsyncRead + AsyncWrite,
       S: MakeService<(), Request<RecvBody>, Response = Response<B>>,
+      S::Error: Into<Box<dyn std::error::Error>>,
       E: Executor<Background<<S::Service as Service<Request<RecvBody>>>::Future, B>>,
       B: Body + 'static,
+      B::Error: Into<Box<dyn std::error::Error>>,
       F: Modify,
 {
     type Item = ();
@@ -215,8 +220,10 @@ where T: AsyncRead + AsyncWrite,
 impl<T, S, E, B, F> Connection<T, S, E, B, F>
 where T: AsyncRead + AsyncWrite,
       S: MakeService<(), Request<RecvBody>, Response = Response<B>>,
+      S::Error: Into<Box<dyn std::error::Error>>,
       E: Executor<Background<<S::Service as Service<Request<RecvBody>>>::Future, B>>,
       B: Body + 'static,
+      B::Error: Into<Box<dyn std::error::Error>>,
       F: Modify,
 {
     /// Start an HTTP2 graceful shutdown.
@@ -399,7 +406,9 @@ where T: Future,
 
 impl<T, B> Future for Background<T, B>
 where T: Future<Item = Response<B>>,
+      T::Error: Into<Box<dyn std::error::Error>>,
       B: Body,
+      B::Error: Into<Box<dyn std::error::Error>>,
 {
     type Item = ();
     type Error = ();
@@ -430,9 +439,10 @@ where T: Future<Item = Response<B>>,
                         }
                     }
 
-                    let response = try_ready!(response.poll().map_err(|_| {
-                        // TODO: do something better the error?
-                        let reason = Reason::INTERNAL_ERROR;
+                    let response = try_ready!(response.poll().map_err(|err| {
+                        let err = err.into();
+                        debug!("user service error: {}", err);
+                        let reason = ::error::reason_from_dyn_error(&*err);
                         respond.send_reset(reason);
                     }));
 

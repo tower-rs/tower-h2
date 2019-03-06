@@ -77,6 +77,7 @@ where
     E: Executor<Background<C::Response, S>> + Clone,
     S: Body,
     S::Item: 'static,
+    S::Error: Into<Box<dyn std::error::Error>>,
 {
     /// Create a new `Connect`.
     ///
@@ -99,6 +100,7 @@ where
     C: MakeConnection<A> + 'static,
     E: Executor<Background<C::Response, S>> + Clone,
     S: Body + 'static,
+    S::Error: Into<Box<dyn std::error::Error>>,
 {
     type Response = Connection<C::Response, E, S>;
     type Error = ConnectError<C::Error>;
@@ -129,6 +131,7 @@ where
     E: Executor<Background<C::Response, S>> + Clone,
     S: Body,
     S::Item: 'static,
+    S::Error: Into<Box<dyn std::error::Error>>,
 {
     type Item = Connection<C::Response, E, S>;
     type Error = ConnectError<C::Error>;

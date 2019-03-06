@@ -76,6 +76,7 @@ enum Kind {
 impl<T, E, S> Connection<T, E, S>
 where S: Body,
       S::Item: 'static,
+      S::Error: Into<Box<dyn std::error::Error>>,
       E: Executor<Background<T, S>>,
       T: AsyncRead + AsyncWrite,
 {
@@ -114,6 +115,7 @@ where S: Body,
 impl<T, E, S> Service<Request<S>> for Connection<T, E, S>
 where S: Body + 'static,
       S::Item: 'static,
+      S::Error: Into<Box<dyn std::error::Error>>,
       E: Executor<Background<T, S>>,
       T: AsyncRead + AsyncWrite,
 {
@@ -223,6 +225,7 @@ where T: AsyncRead + AsyncWrite,
       E: Executor<Background<T, S>> + Clone,
       S: Body,
       S::Item: 'static,
+      S::Error: Into<Box<dyn std::error::Error>>,
 {
     type Item = Connection<T, E, S>;
     type Error = HandshakeError;

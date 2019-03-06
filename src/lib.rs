@@ -16,9 +16,11 @@ pub mod server;
 
 mod body;
 mod buf;
+mod error;
 mod flush;
 mod recv_body;
 
+pub use h2::{Error, Reason};
 pub use body::NoBody;
 pub use recv_body::{RecvBody, Data};
 pub use server::Server;
