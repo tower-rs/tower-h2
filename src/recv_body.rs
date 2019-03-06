@@ -5,14 +5,13 @@ use h2;
 use http;
 
 /// Allows a stream to be read from the remote.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct RecvBody {
-    inner: Option<h2::RecvStream>,
+    inner: h2::RecvStream,
 }
 
 #[derive(Debug)]
 pub struct Data {
-    release_capacity: h2::ReleaseCapacity,
     bytes: Bytes,
 }
 
@@ -21,13 +20,13 @@ pub struct Data {
 impl RecvBody {
     /// Return a new `RecvBody`.
     pub(crate) fn new(inner: h2::RecvStream) -> Self {
-        RecvBody { inner: Some(inner) }
+        RecvBody { inner }
     }
 
     /// Returns the stream ID of the received stream, or `None` if this body
     /// does not correspond to a stream.
-    pub fn stream_id(&self) -> Option<h2::StreamId> {
-        self.inner.as_ref().map(h2::RecvStream::stream_id)
+    pub fn stream_id(&self) -> h2::StreamId {
+        self.inner.stream_id()
     }
 }
 
@@ -36,34 +35,26 @@ impl Body for RecvBody {
     type Error = h2::Error;
 
     fn is_end_stream(&self) -> bool {
-        match self.inner {
-            Some(ref inner) => inner.is_end_stream(),
-            None => true,
-        }
+        self.inner.is_end_stream()
     }
 
     fn poll_buf(&mut self) -> Poll<Option<Self::Item>, h2::Error> {
-        match self.inner {
-            Some(ref mut inner) => {
-                let data = try_ready!(inner.poll())
-                    .map(|bytes| {
-                        Data {
-                            release_capacity: inner.release_capacity().clone(),
-                            bytes,
-                        }
-                    });
+        let data = try_ready!(self.inner.poll())
+            .map(|bytes| {
+                self.inner
+                    .release_capacity()
+                    .release_capacity(bytes.len())
+                    .expect("flow control error");
+                Data {
+                    bytes,
+                }
+            });
 
-                Ok(data.into())
-            }
-            None => Ok(None.into()),
-        }
+        Ok(data.into())
     }
 
     fn poll_trailers(&mut self) -> Poll<Option<http::HeaderMap>, h2::Error> {
-        match self.inner {
-            Some(ref mut inner) => inner.poll_trailers(),
-            None => Ok(None.into()),
-        }
+        self.inner.poll_trailers()
     }
 }
 
@@ -79,46 +70,18 @@ impl Buf for Data {
     }
 
     fn advance(&mut self, cnt: usize) {
-        if cnt > self.remaining() {
-            panic!("advanced past end of buffer");
-        }
-
-        trace!("releasing capacity: {} of {}", cnt, self.remaining());
-        let _ = self.bytes.split_to(cnt);
-
-        self.release_capacity.release_capacity(cnt)
-            .expect("flow control error")
-    }
-}
-
-impl Drop for Data {
-    fn drop(&mut self) {
-        let sz = self.remaining();
-        trace!("Data::drop: releasing capacity: {}", sz);
-        self.release_capacity
-            .release_capacity(sz)
-            .expect("flow control error");
+        self.bytes.advance(cnt);
     }
 }
 
 impl From<Data> for Bytes {
-    fn from(mut src: Data) -> Self {
-        let bytes = ::std::mem::replace(&mut src.bytes, Bytes::new());
-
-        src.release_capacity.release_capacity(bytes.len())
-            .expect("flow control error");
-
-        bytes
+    fn from(src: Data) -> Self {
+        src.bytes
     }
 }
 
 impl From<Data> for BytesMut {
-    fn from(mut src: Data) -> Self {
-        let bytes = ::std::mem::replace(&mut src.bytes, Bytes::new());
-
-        src.release_capacity.release_capacity(bytes.len())
-            .expect("flow control error");
-
-        bytes.into()
+    fn from(src: Data) -> Self {
+        src.bytes.into()
     }
 }
