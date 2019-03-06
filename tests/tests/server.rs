@@ -1,6 +1,7 @@
 use self::support::*;
 
 use bytes::Bytes;
+use futures::Poll;
 use h2_support::prelude::*;
 use tokio::runtime::current_thread::Runtime;
 use tokio_current_thread::TaskExecutor;
@@ -104,7 +105,7 @@ fn hello() {
                 .body(NoBody)
                 .unwrap();
 
-            Ok::<_, ()>(response.into())
+            Ok::<_, tower_h2::Error>(response.into())
         }),
         Default::default(), TaskExecutor::current());
 
@@ -187,7 +188,7 @@ fn hello_rsp_body() {
                 .body(SendBody::new("hello back"))
                 .unwrap();
 
-            Ok::<_, ()>(response.into())
+            Ok::<_, tower_h2::Error>(response.into())
         }),
         Default::default(), TaskExecutor::current());
 
@@ -266,13 +267,13 @@ fn respects_flow_control_eos_signal() {
 
     impl Body for Zeros {
         type Item = <Bytes as IntoBuf>::Buf;
-        type Error = support::h2::Error;
+        type Error = tower_h2::Error;
 
         fn is_end_stream(&self) -> bool {
             self.cnt.get() == 5
         }
 
-        fn poll_buf(&mut self) -> Poll<Option<Self::Item>, support::h2::Error> {
+        fn poll_buf(&mut self) -> Poll<Option<Self::Item>, tower_h2::Error> {
             let cnt = self.cnt.get();
 
             if cnt == 5 {
@@ -329,7 +330,7 @@ fn respects_flow_control_eos_signal() {
                 .body(Zeros::new(cnt.clone()))
                 .unwrap();
 
-            Ok::<_, ()>(response.into())
+            Ok::<_, tower_h2::Error>(response.into())
         }),
         Default::default(), TaskExecutor::current());
 
@@ -366,9 +367,9 @@ fn respects_flow_control_no_eos_signal() {
 
     impl Body for Zeros {
         type Item = <Bytes as IntoBuf>::Buf;
-        type Error = support::h2::Error;
+        type Error = tower_h2::Error;
 
-        fn poll_buf(&mut self) -> Poll<Option<Self::Item>, support::h2::Error> {
+        fn poll_buf(&mut self) -> Poll<Option<Self::Item>, tower_h2::Error> {
             let cnt = self.cnt.get();
 
             if cnt == 5 {
@@ -426,7 +427,7 @@ fn respects_flow_control_no_eos_signal() {
                 .body(Zeros::new(cnt.clone()))
                 .unwrap();
 
-            Ok::<_, ()>(response.into())
+            Ok::<_, tower_h2::Error>(response.into())
         }),
         Default::default(), TaskExecutor::current());
 
@@ -472,9 +473,9 @@ fn flushing_body_cancels_if_reset() {
 
     impl Body for Zeros {
         type Item = <Bytes as IntoBuf>::Buf;
-        type Error = support::h2::Error;
+        type Error = tower_h2::Error;
 
-        fn poll_buf(&mut self) -> Poll<Option<Self::Item>, support::h2::Error> {
+        fn poll_buf(&mut self) -> Poll<Option<Self::Item>, tower_h2::Error> {
             if self.cnt == 1 {
                 Ok(Async::NotReady)
             } else {
@@ -517,7 +518,7 @@ fn flushing_body_cancels_if_reset() {
                 .body(Zeros::new(dropped2.clone()))
                 .unwrap();
 
-            Ok::<_, ()>(response.into())
+            Ok::<_, tower_h2::Error>(response.into())
         }),
         Default::default(), TaskExecutor::current());
 
@@ -530,4 +531,105 @@ fn flushing_body_cancels_if_reset() {
     // The flush future should have finished, since it was reset. If so,
     // it will have dropped once.
     assert_eq!(dropped.get(), 1);
+}
+
+#[derive(Debug)]
+struct Nesty(Box<dyn std::error::Error>);
+
+impl std::fmt::Display for Nesty {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "nesty: {}", self.0)
+    }
+}
+
+impl std::error::Error for Nesty {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&*self.0)
+    }
+}
+
+struct ErrorBody(bool);
+
+impl Body for ErrorBody {
+    type Item = <Bytes as IntoBuf>::Buf;
+    type Error = Nesty;
+
+
+    fn poll_buf(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        if self.0 {
+            Ok(None.into())
+        } else {
+            self.0 = true;
+            // yield once so the headers frame can flush
+            futures::task::current().notify();
+            Ok(futures::Async::NotReady)
+        }
+    }
+
+    fn poll_trailers(&mut self) -> Poll<Option<http::HeaderMap>, Self::Error> {
+        // lol? refused after sending headers?
+        // oh well, h2-support doesnt have other easier reasons to test
+        Err(Nesty(tower_h2::Error::from(tower_h2::Reason::REFUSED_STREAM).into()))
+    }
+}
+
+#[test]
+fn service_error_sends_reset() {
+    let _ = ::env_logger::try_init();
+
+    let (io, client) = mock::new();
+
+    let client = client
+        .assert_server_handshake()
+        .unwrap()
+        .recv_settings()
+        .send_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/refused")
+                .eos(),
+        )
+        .recv_frame(frames::reset(1).refused())
+        .send_frame(
+            frames::headers(3)
+                .request("GET", "https://example.com/nested")
+                .eos(),
+        )
+        .recv_frame(frames::reset(3).refused())
+        .send_frame(
+            frames::headers(5)
+                .request("GET", "https://example.com/not-h2")
+                .eos(),
+        )
+        .recv_frame(frames::reset(5).internal_error())
+        .send_frame(
+            frames::headers(7)
+                .request("GET", "https://example.com/body")
+                .eos(),
+        )
+        .recv_frame(frames::headers(7).response(200))
+        .recv_frame(frames::reset(7).refused())
+        .close();
+
+    let mut h2 = Server::new(
+        SyncServiceFn::new(|req| -> Result<_, Box<dyn std::error::Error>> {
+            match req.uri().path() {
+                "/refused" => Err(tower_h2::Error::from(tower_h2::Reason::REFUSED_STREAM).into()),
+                "/nested" => {
+                    let err = Nesty(
+                        tower_h2::Error::from(tower_h2::Reason::REFUSED_STREAM).into(),
+                    );
+                    let err = Nesty(err.into());
+                    Err(err.into())
+                },
+                "/body" => Ok(http::Response::new(ErrorBody(false))),
+                _ => Err("no h2 in chain".into()),
+            }
+        }),
+        Default::default(), TaskExecutor::current());
+
+    let f = h2.serve(io).map_err(|e| panic!("err={:?}", e)).join(client);
+    Runtime::new()
+        .unwrap()
+        .block_on(f)
+        .unwrap();
 }

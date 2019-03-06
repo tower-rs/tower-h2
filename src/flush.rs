@@ -30,6 +30,7 @@ enum DataOrTrailers<B> {
 impl<S> Flush<S>
 where
     S: Body,
+    S::Error: Into<Box<dyn std::error::Error>>,
 {
     pub fn new(src: S, dst: SendStream<SendBuf<S::Item>>)
         -> Self
@@ -123,8 +124,15 @@ where
                     }
 
 
+                    let item = try_ready!(self.body.poll_buf().map_err(|err| {
+                        let err = err.into();
+                        debug!("user body error from poll_buf: {}", err);
+                        let reason = ::error::reason_from_dyn_error(&*err);
+                        self.h2.send_reset(reason);
+                        reason
+                    }));
 
-                    if let Some(data) = try_ready!(self.body.poll_buf().map_err(|_| h2::Reason::INTERNAL_ERROR)) {
+                    if let Some(data) = item {
                         return Ok(Async::Ready(Some(DataOrTrailers::Data(data))));
                     } else {
                         // Release all capacity back to the connection
@@ -148,9 +156,12 @@ where
                             // before we get a RST_STREAM.
                         }
                     }
-                    let trailers = try_ready!(self.body.poll_trailers().map_err(|_| {
-                        // TODO: do something better the error?
-                        h2::Reason::INTERNAL_ERROR
+                    let trailers = try_ready!(self.body.poll_trailers().map_err(|err| {
+                        let err = err.into();
+                        debug!("user body error from poll_trailers: {}", err);
+                        let reason = ::error::reason_from_dyn_error(&*err);
+                        self.h2.send_reset(reason);
+                        reason
                     }));
                     self.state = FlushState::Done;
                     if let Some(trailers) = trailers {
@@ -164,7 +175,9 @@ where
 }
 
 impl<S> Future for Flush<S>
-where S: Body,
+where
+    S: Body,
+    S::Error: Into<Box<dyn std::error::Error>>,
 {
     type Item = ();
     type Error = ();
