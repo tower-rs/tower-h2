@@ -6,9 +6,9 @@ authors = ["Oliver Gould <ver@buoyant.io>"]
 [dependencies]
 futures = "0.1"
 http = "0.1"
-h2 = "0.1"
 
-tower-h2  = { version = "0.1", path = ".." }
+tokio-buf = "0.1"
+tower-http-service = { git = "https://github.com/tower-rs/tower-http" }
 
 tower-balance = { git = "https://github.com/tower-rs/tower" }
 tower-service = "0.2"

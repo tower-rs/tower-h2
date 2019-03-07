@@ -1,10 +1,11 @@
 extern crate futures;
-extern crate h2;
 extern crate http;
+extern crate tokio_buf;
 extern crate tower_balance;
-extern crate tower_h2;
+extern crate tower_http_service;
 
 use futures::{Async, Poll};
+use tokio_buf::SizeHint;
 use tower_balance::load::Instrument;
 
 /// Instruments HTTP responses to drop handles when their first body message is received.
@@ -33,7 +34,7 @@ pub struct PendingUntilEosBody<T, B> {
 
 impl<T, B> Instrument<T, http::Response<B>> for PendingUntilFirstData
 where
-    B: tower_h2::Body,
+    B: tower_http_service::Body,
 {
     type Output = http::Response<PendingUntilFirstDataBody<T, B>>;
 
@@ -54,7 +55,7 @@ where
 
 impl<T, B> Instrument<T, http::Response<B>> for PendingUntilEos
 where
-    B: tower_h2::Body,
+    B: tower_http_service::Body,
 {
     type Output = http::Response<PendingUntilEosBody<T, B>>;
 
@@ -87,7 +88,7 @@ macro_rules! return_if_not_ready {
 
 impl<T, B> Default for PendingUntilFirstDataBody<T, B>
 where
-    B: tower_h2::Body + Default,
+    B: tower_http_service::Body + Default,
 {
     fn default() -> Self {
         Self {
@@ -97,18 +98,23 @@ where
     }
 }
 
-impl<T, B> tower_h2::Body for PendingUntilFirstDataBody<T, B>
+impl<T, B> tower_http_service::Body for PendingUntilFirstDataBody<T, B>
 where
-    B: tower_h2::Body,
+    B: tower_http_service::Body,
 {
-    type Data = B::Data;
+    type Item = B::Item;
+    type Error = B::Error;
 
     fn is_end_stream(&self) -> bool {
         self.body.is_end_stream()
     }
 
-    fn poll_data(&mut self) -> Poll<Option<Self::Data>, h2::Error> {
-        let ret = return_if_not_ready!(self.body.poll_data());
+    fn size_hint(&self) -> SizeHint {
+        self.body.size_hint()
+    }
+
+    fn poll_buf(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        let ret = return_if_not_ready!(self.body.poll_buf());
 
         // Once a data frame is received, the handle is dropped. On subsequent calls, this
         // is a noop.
@@ -117,7 +123,7 @@ where
         ret
     }
 
-    fn poll_trailers(&mut self) -> Poll<Option<http::HeaderMap>, h2::Error> {
+    fn poll_trailers(&mut self) -> Poll<Option<http::HeaderMap>, Self::Error> {
         // If this is being called, the handle definitely should have been dropped
         // already.
         drop(self.handle.take());
@@ -130,7 +136,7 @@ where
 
 impl<T, B> Default for PendingUntilEosBody<T, B>
 where
-    B: tower_h2::Body + Default,
+    B: tower_http_service::Body + Default,
 {
     fn default() -> Self {
         Self {
@@ -140,15 +146,20 @@ where
     }
 }
 
-impl<T, B: tower_h2::Body> tower_h2::Body for PendingUntilEosBody<T, B> {
-    type Data = B::Data;
+impl<T, B: tower_http_service::Body> tower_http_service::Body for PendingUntilEosBody<T, B> {
+    type Item = B::Item;
+    type Error = B::Error;
 
     fn is_end_stream(&self) -> bool {
         self.body.is_end_stream()
     }
 
-    fn poll_data(&mut self) -> Poll<Option<Self::Data>, h2::Error> {
-        let ret = return_if_not_ready!(self.body.poll_data());
+    fn size_hint(&self) -> SizeHint {
+        self.body.size_hint()
+    }
+
+    fn poll_buf(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        let ret = return_if_not_ready!(self.body.poll_buf());
 
         // If this was the last frame, then drop the handle immediately.
         if self.is_end_stream() {
@@ -158,7 +169,7 @@ impl<T, B: tower_h2::Body> tower_h2::Body for PendingUntilEosBody<T, B> {
         ret
     }
 
-    fn poll_trailers(&mut self) -> Poll<Option<http::HeaderMap>, h2::Error> {
+    fn poll_trailers(&mut self) -> Poll<Option<http::HeaderMap>, Self::Error> {
         let ret = return_if_not_ready!(self.body.poll_trailers());
 
         // Once trailers are received, the handle is dropped immediately (in case the body
@@ -172,12 +183,12 @@ impl<T, B: tower_h2::Body> tower_h2::Body for PendingUntilEosBody<T, B> {
 #[cfg(test)]
 mod tests {
     use futures::Poll;
-    use h2;
     use http;
+    use std::io;
     use std::collections::VecDeque;
     use std::sync::{Arc, Weak};
     use tower_balance::load::Instrument;
-    use tower_h2::Body;
+    use tower_http_service::Body;
 
     use super::{PendingUntilFirstData, PendingUntilEos};
 
@@ -185,7 +196,7 @@ mod tests {
     fn first_data() {
         let body = {
             let mut parts = VecDeque::new();
-            parts.push_back("one");
+            parts.push_back(io::Cursor::new("one"));
             TestBody(parts, None)
         };
 
@@ -195,7 +206,7 @@ mod tests {
             .into_parts();
         assert!(wk.upgrade().is_some());
 
-        assert!(body.poll_data().expect("data").is_ready());
+        assert!(body.poll_buf().expect("data").is_ready());
         assert!(wk.upgrade().is_none());
     }
 
@@ -214,7 +225,7 @@ mod tests {
     fn first_data_drop() {
         let body = {
             let mut parts = VecDeque::new();
-            parts.push_back("one");
+            parts.push_back(io::Cursor::new("one"));
             TestBody(parts, None)
         };
 
@@ -232,8 +243,8 @@ mod tests {
     fn first_data_error() {
         let body = {
             let mut parts = VecDeque::new();
-            parts.push_back("one");
-            parts.push_back("two");
+            parts.push_back(io::Cursor::new("one"));
+            parts.push_back(io::Cursor::new("two"));
             let e: ::std::io::Error = ::std::io::ErrorKind::Other.into();
             ErrBody(Some(e.into()))
         };
@@ -244,7 +255,7 @@ mod tests {
             .into_parts();
         assert!(wk.upgrade().is_some());
 
-        assert!(body.poll_data().is_err());
+        assert!(body.poll_buf().is_err());
         assert!(wk.upgrade().is_none());
     }
 
@@ -252,8 +263,8 @@ mod tests {
     fn eos() {
         let body = {
             let mut parts = VecDeque::new();
-            parts.push_back("one");
-            parts.push_back("two");
+            parts.push_back(io::Cursor::new("one"));
+            parts.push_back(io::Cursor::new("two"));
             TestBody(parts, None)
         };
 
@@ -263,10 +274,10 @@ mod tests {
             .into_parts();
         assert!(wk.upgrade().is_some());
 
-        assert!(body.poll_data().expect("data").is_ready());
+        assert!(body.poll_buf().expect("data").is_ready());
         assert!(wk.upgrade().is_some());
 
-        assert!(body.poll_data().expect("data").is_ready());
+        assert!(body.poll_buf().expect("data").is_ready());
         assert!(wk.upgrade().is_none());
     }
 
@@ -285,8 +296,8 @@ mod tests {
     fn eos_trailers() {
         let body = {
             let mut parts = VecDeque::new();
-            parts.push_back("one");
-            parts.push_back("two");
+            parts.push_back(io::Cursor::new("one"));
+            parts.push_back(io::Cursor::new("two"));
             TestBody(parts, Some(http::HeaderMap::default()))
         };
 
@@ -296,13 +307,13 @@ mod tests {
             .into_parts();
         assert!(wk.upgrade().is_some());
 
-        assert!(body.poll_data().expect("data").is_ready());
+        assert!(body.poll_buf().expect("data").is_ready());
         assert!(wk.upgrade().is_some());
 
-        assert!(body.poll_data().expect("data").is_ready());
+        assert!(body.poll_buf().expect("data").is_ready());
         assert!(wk.upgrade().is_some());
 
-        assert!(body.poll_data().expect("data").is_ready());
+        assert!(body.poll_buf().expect("data").is_ready());
         assert!(wk.upgrade().is_some());
 
         assert!(body.poll_trailers().expect("trailers").is_ready());
@@ -313,8 +324,8 @@ mod tests {
     fn eos_error() {
         let body = {
             let mut parts = VecDeque::new();
-            parts.push_back("one");
-            parts.push_back("two");
+            parts.push_back(io::Cursor::new("one"));
+            parts.push_back(io::Cursor::new("two"));
             let e: ::std::io::Error = ::std::io::ErrorKind::Other.into();
             ErrBody(Some(e.into()))
         };
@@ -325,7 +336,7 @@ mod tests {
             .into_parts();
         assert!(wk.upgrade().is_some());
 
-        assert!(body.poll_data().is_err());
+        assert!(body.poll_buf().is_err());
         assert!(wk.upgrade().is_none());
     }
 
@@ -339,38 +350,40 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct TestBody(VecDeque<&'static str>, Option<http::HeaderMap>);
+    struct TestBody(VecDeque<io::Cursor<&'static str>>, Option<http::HeaderMap>);
     impl Body for TestBody {
-        type Data = &'static str;
+        type Item = io::Cursor<&'static str>;
+        type Error = io::Error;
 
         fn is_end_stream(&self) -> bool {
             self.0.is_empty() & self.1.is_none()
         }
 
-        fn poll_data(&mut self) -> Poll<Option<Self::Data>, h2::Error> {
+        fn poll_buf(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
             Ok(self.0.pop_front().into())
         }
 
-        fn poll_trailers(&mut self) -> Poll<Option<http::HeaderMap>, h2::Error> {
+        fn poll_trailers(&mut self) -> Poll<Option<http::HeaderMap>, Self::Error> {
             assert!(self.0.is_empty());
             Ok(self.1.take().into())
         }
     }
 
     #[derive(Default)]
-    struct ErrBody(Option<h2::Error>);
+    struct ErrBody(Option<io::Error>);
     impl Body for ErrBody {
-        type Data = &'static str;
+        type Item = io::Cursor<&'static str>;
+        type Error = io::Error;
 
         fn is_end_stream(&self) -> bool {
             self.0.is_none()
         }
 
-        fn poll_data(&mut self) -> Poll<Option<Self::Data>, h2::Error> {
+        fn poll_buf(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
             Err(self.0.take().expect("err"))
         }
 
-        fn poll_trailers(&mut self) -> Poll<Option<http::HeaderMap>, h2::Error> {
+        fn poll_trailers(&mut self) -> Poll<Option<http::HeaderMap>, Self::Error> {
             Err(self.0.take().expect("err"))
         }
     }
