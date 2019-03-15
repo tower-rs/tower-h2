@@ -2,7 +2,7 @@ use {flush, Body, RecvBody};
 use buf::SendBuf;
 
 use tower_service::Service;
-use tower_util::MakeService;
+use tower::MakeService;
 
 use futures::{Async, Future, Poll, Stream};
 use futures::future::{Executor, Either, Join, MapErr};

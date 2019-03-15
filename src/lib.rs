@@ -9,7 +9,7 @@ extern crate tokio_connect;
 extern crate tokio_io;
 extern crate tower_http_service;
 extern crate tower_service;
-extern crate tower_util;
+extern crate tower;
 
 pub mod client;
 pub mod server;
