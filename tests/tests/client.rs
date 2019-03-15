@@ -8,7 +8,7 @@ use tower_h2::client::Connect;
 use tower_h2::NoBody;
 
 use tower_service::Service;
-use tower_util::MakeService;
+use tower::MakeService;
 use futures::Poll;
 use futures::future::{self, FutureResult};
 use std::cell::RefCell;

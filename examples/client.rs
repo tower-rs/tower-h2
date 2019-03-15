@@ -8,7 +8,7 @@ extern crate tokio_connect;
 extern crate tokio;
 extern crate tower_h2;
 extern crate tower_service;
-extern crate tower_util;
+extern crate tower;
 
 use futures::*;
 use bytes::Bytes;
@@ -20,7 +20,7 @@ use tokio::runtime::{Runtime, TaskExecutor};
 use tower_h2::{Body, RecvBody};
 use tower_h2::client::Connect;
 use tower_service::Service;
-use tower_util::MakeService;
+use tower::MakeService;
 use h2::Reason;
 
 pub struct Conn(SocketAddr);

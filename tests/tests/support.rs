@@ -7,7 +7,7 @@ pub extern crate tokio;
 pub extern crate tokio_current_thread;
 pub extern crate tower_h2;
 pub extern crate tower_service;
-pub extern crate tower_util;
+pub extern crate tower;
 
 use bytes::{Bytes, Buf, IntoBuf};
 use tower_h2::{Body, RecvBody};

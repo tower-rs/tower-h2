@@ -2,7 +2,7 @@ use Body;
 use super::{Connection, Background, Handshake, HandshakeError};
 
 use tower_service::Service;
-use tower_util::MakeConnection;
+use tower::MakeConnection;
 
 use futures::{Future, Poll};
 use futures::future::Executor;
