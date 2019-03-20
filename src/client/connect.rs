@@ -55,7 +55,7 @@ where C: MakeConnection<A>,
       S: Body,
 {
     Connect(C::Future),
-    Handshake(Handshake<C::Response, E, S>),
+    Handshake(Handshake<C::Connection, E, S>),
 }
 
 /// Error produced when establishing an H2 client connection.
@@ -74,7 +74,7 @@ pub enum ConnectError<T> {
 impl<A, C, E, S> Connect<A, C, E, S>
 where
     C: MakeConnection<A>,
-    E: Executor<Background<C::Response, S>> + Clone,
+    E: Executor<Background<C::Connection, S>> + Clone,
     S: Body,
     S::Item: 'static,
     S::Error: Into<Box<dyn std::error::Error>>,
@@ -98,11 +98,11 @@ where
 impl<A, C, E, S> Service<A> for Connect<A, C, E, S>
 where
     C: MakeConnection<A> + 'static,
-    E: Executor<Background<C::Response, S>> + Clone,
+    E: Executor<Background<C::Connection, S>> + Clone,
     S: Body + 'static,
     S::Error: Into<Box<dyn std::error::Error>>,
 {
-    type Response = Connection<C::Response, E, S>;
+    type Response = Connection<C::Connection, E, S>;
     type Error = ConnectError<C::Error>;
     type Future = ConnectFuture<A, C, E, S>;
 
@@ -128,12 +128,12 @@ where
 impl<A, C, E, S> Future for ConnectFuture<A, C, E, S>
 where
     C: MakeConnection<A>,
-    E: Executor<Background<C::Response, S>> + Clone,
+    E: Executor<Background<C::Connection, S>> + Clone,
     S: Body,
     S::Item: 'static,
     S::Error: Into<Box<dyn std::error::Error>>,
 {
-    type Item = Connection<C::Response, E, S>;
+    type Item = Connection<C::Connection, E, S>;
     type Error = ConnectError<C::Error>;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
