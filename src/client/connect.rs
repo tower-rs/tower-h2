@@ -107,7 +107,7 @@ where
     type Future = ConnectFuture<A, C, E, S>;
 
     fn poll_ready(&mut self) -> Poll<(), Self::Error> {
-        Ok(().into())
+        self.inner.poll_ready().map_err(ConnectError::Connect)
     }
 
     /// Obtains a Connection on a single plaintext h2 connection to a remote.
