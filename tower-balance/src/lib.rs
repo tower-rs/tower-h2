@@ -2,11 +2,12 @@ extern crate futures;
 extern crate http;
 extern crate tokio_buf;
 extern crate tower_balance;
-extern crate tower_http_service;
+extern crate tower_http;
 
 use futures::{Async, Poll};
 use tokio_buf::SizeHint;
 use tower_balance::load::Instrument;
+use tower_http::Body;
 
 /// Instruments HTTP responses to drop handles when their first body message is received.
 #[derive(Clone, Debug, Default)]
@@ -34,7 +35,7 @@ pub struct PendingUntilEosBody<T, B> {
 
 impl<T, B> Instrument<T, http::Response<B>> for PendingUntilFirstData
 where
-    B: tower_http_service::Body,
+    B: Body,
 {
     type Output = http::Response<PendingUntilFirstDataBody<T, B>>;
 
@@ -55,7 +56,7 @@ where
 
 impl<T, B> Instrument<T, http::Response<B>> for PendingUntilEos
 where
-    B: tower_http_service::Body,
+    B: Body,
 {
     type Output = http::Response<PendingUntilEosBody<T, B>>;
 
@@ -88,7 +89,7 @@ macro_rules! return_if_not_ready {
 
 impl<T, B> Default for PendingUntilFirstDataBody<T, B>
 where
-    B: tower_http_service::Body + Default,
+    B: Body + Default,
 {
     fn default() -> Self {
         Self {
@@ -98,9 +99,9 @@ where
     }
 }
 
-impl<T, B> tower_http_service::Body for PendingUntilFirstDataBody<T, B>
+impl<T, B> Body for PendingUntilFirstDataBody<T, B>
 where
-    B: tower_http_service::Body,
+    B: Body,
 {
     type Item = B::Item;
     type Error = B::Error;
@@ -136,7 +137,7 @@ where
 
 impl<T, B> Default for PendingUntilEosBody<T, B>
 where
-    B: tower_http_service::Body + Default,
+    B: Body + Default,
 {
     fn default() -> Self {
         Self {
@@ -146,7 +147,7 @@ where
     }
 }
 
-impl<T, B: tower_http_service::Body> tower_http_service::Body for PendingUntilEosBody<T, B> {
+impl<T, B: Body> Body for PendingUntilEosBody<T, B> {
     type Item = B::Item;
     type Error = B::Error;
 
@@ -188,7 +189,7 @@ mod tests {
     use std::collections::VecDeque;
     use std::sync::{Arc, Weak};
     use tower_balance::load::Instrument;
-    use tower_http_service::Body;
+    use tower_http::Body;
 
     use super::{PendingUntilFirstData, PendingUntilEos};
 
