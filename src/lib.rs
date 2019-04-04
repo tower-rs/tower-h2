@@ -7,7 +7,7 @@ extern crate http;
 extern crate log;
 extern crate tokio_connect;
 extern crate tokio_io;
-extern crate tower_http_service;
+extern crate tower_http;
 extern crate tower_service;
 extern crate tower;
 
@@ -24,4 +24,4 @@ pub use h2::{Error, Reason};
 pub use body::NoBody;
 pub use recv_body::{RecvBody, Data};
 pub use server::Server;
-pub use tower_http_service::{Body, HttpService};
+pub use tower_http::{Body, HttpService};
