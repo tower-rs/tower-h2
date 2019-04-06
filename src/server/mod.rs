@@ -60,7 +60,7 @@ where T: AsyncRead + AsyncWrite,
     /// The service has closed, so poll until connection is closed.
     GoAway {
         connection: Accept<T, SendBuf<B::Item>>,
-        error: Error<S>,
+        error: Error<S::Error, S::MakeError>,
     },
 
     /// Everything is closed up.
@@ -93,9 +93,8 @@ where B: Body,
 }
 
 /// Error produced by a `Connection`.
-pub enum Error<S>
-where S: MakeService<(), Request<RecvBody>>,
-{
+#[derive(Debug)]
+pub enum Error<E, ME = E> {
     /// Error produced during the HTTP/2.0 handshake.
     Handshake(h2::Error),
 
@@ -103,10 +102,10 @@ where S: MakeService<(), Request<RecvBody>>,
     Protocol(h2::Error),
 
     /// Error produced when obtaining the service
-    NewService(S::MakeError),
+    NewService(ME),
 
     /// Error produced by the service
-    Service(S::Error),
+    Service(E),
 
     /// Error produced when attempting to spawn a task
     Execute,
@@ -205,7 +204,7 @@ where T: AsyncRead + AsyncWrite,
       F: Modify,
 {
     type Item = ();
-    type Error = Error<S>;
+    type Error = Error<S::Error, S::MakeError>;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         // Code is in poll2 to make sure any Err returned
@@ -245,7 +244,7 @@ where T: AsyncRead + AsyncWrite,
         self.state = State::Done;
     }
 
-    fn poll2(&mut self) -> Poll<(), Error<S>> {
+    fn poll2(&mut self) -> Poll<(), Error<S::Error, S::MakeError>> {
         loop {
             match self.state {
                 State::Init(..) => try_ready!(self.poll_init()),
@@ -264,7 +263,7 @@ where T: AsyncRead + AsyncWrite,
         }
     }
 
-    fn poll_init(&mut self) -> Poll<(), Error<S>> {
+    fn poll_init(&mut self) -> Poll<(), Error<S::Error, S::MakeError>> {
         use self::State::*;
 
         let (connection, service) = match self.state {
@@ -277,7 +276,7 @@ where T: AsyncRead + AsyncWrite,
         Ok(().into())
     }
 
-    fn poll_main(&mut self) -> Poll<PollMain, Error<S>> {
+    fn poll_main(&mut self) -> Poll<PollMain, Error<S::Error, S::MakeError>> {
         let error = match self.state {
             State::Ready { ref mut connection, ref mut service } => loop {
                 // Make sure the service is ready
@@ -351,7 +350,7 @@ where T: AsyncRead + AsyncWrite,
         }
     }
 
-    fn poll_goaway(&mut self) -> Poll<(), Error<S>> {
+    fn poll_goaway(&mut self) -> Poll<(), Error<S::Error, S::MakeError>> {
         match self.state {
             State::GoAway { ref mut connection, .. } => {
                 try_ready!(connection.poll_close().map_err(Error::Protocol));
@@ -479,10 +478,8 @@ where T: Future<Item = Response<B>>,
 
 // ===== impl Error =====
 
-impl<S> Error<S>
-where S: MakeService<(), Request<RecvBody>>,
-{
-    fn from_init(err: Either<h2::Error, S::MakeError>) -> Self {
+impl<E, ME> Error<E, ME> {
+    fn from_init(err: Either<h2::Error, ME>) -> Self {
         match err {
             Either::A(err) => Error::Handshake(err),
             Either::B(err) => Error::NewService(err),
@@ -490,36 +487,10 @@ where S: MakeService<(), Request<RecvBody>>,
     }
 }
 
-impl<S> fmt::Debug for Error<S>
+impl<E, ME> fmt::Display for Error<E, ME>
 where
-    S: MakeService<(), Request<RecvBody>>,
-    S::MakeError: fmt::Debug,
-    S::Error: fmt::Debug,
-{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::Handshake(ref why) => f.debug_tuple("Handshake")
-                .field(why)
-                .finish(),
-            Error::Protocol(ref why) => f.debug_tuple("Protocol")
-                .field(why)
-                .finish(),
-            Error::NewService(ref why) => f.debug_tuple("NewService")
-                .field(why)
-                .finish(),
-            Error::Service(ref why) => f.debug_tuple("Service")
-                .field(why)
-                .finish(),
-            Error::Execute => f.debug_tuple("Execute").finish(),
-        }
-    }
-}
-
-impl<S> fmt::Display for Error<S>
-where
-    S: MakeService<(), Request<RecvBody>>,
-    S::MakeError: fmt::Display,
-    S::Error: fmt::Display,
+    E: fmt::Display,
+    ME: fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
@@ -537,11 +508,10 @@ where
     }
 }
 
-impl<S> error::Error for Error<S>
+impl<E, ME> error::Error for Error<E, ME>
 where
-    S: MakeService<(), Request<RecvBody>>,
-    S::MakeError: error::Error,
-    S::Error: error::Error,
+    E: error::Error,
+    ME: error::Error,
 {
     fn cause(&self) -> Option<&error::Error> {
         match *self {
