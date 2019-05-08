@@ -5,14 +5,14 @@ use futures::Poll;
 use h2_support::prelude::*;
 use tokio::runtime::current_thread::Runtime;
 use tokio_current_thread::TaskExecutor;
-use tower_h2::{Body, NoBody};
 use tower_h2::server::Server;
+use tower_h2::{Body, NoBody};
 
 mod support;
 mod extract {
-    use futures::{Async, Poll, IntoFuture};
     use futures::future::{self, FutureResult};
-    use tower_service::{Service};
+    use futures::{Async, IntoFuture, Poll};
+    use tower_service::Service;
 
     use std::sync::Arc;
 
@@ -23,19 +23,19 @@ mod extract {
     }
 
     impl<T, S> SyncServiceFn<T>
-    where T: Fn(Req) -> S,
-          S: IntoFuture,
+    where
+        T: Fn(Req) -> S,
+        S: IntoFuture,
     {
         pub fn new(f: T) -> Self {
-            SyncServiceFn {
-                f: Arc::new(f),
-            }
+            SyncServiceFn { f: Arc::new(f) }
         }
     }
 
     impl<T, S> Service<Req> for SyncServiceFn<T>
-    where T: Fn(Req) -> S,
-          S: IntoFuture,
+    where
+        T: Fn(Req) -> S,
+        S: IntoFuture,
     {
         type Response = S::Item;
         type Error = S::Error;
@@ -51,8 +51,9 @@ mod extract {
     }
 
     impl<T, S> Service<()> for SyncServiceFn<T>
-    where T: Fn(Req) -> S,
-          S: IntoFuture,
+    where
+        T: Fn(Req) -> S,
+        S: IntoFuture,
     {
         type Response = Self;
         type Error = ();
@@ -68,13 +69,12 @@ mod extract {
     }
 
     impl<T, S> Clone for SyncServiceFn<T>
-    where T: Fn(Req) -> S,
-          S: IntoFuture,
+    where
+        T: Fn(Req) -> S,
+        S: IntoFuture,
     {
         fn clone(&self) -> Self {
-            SyncServiceFn {
-                f: self.f.clone(),
-            }
+            SyncServiceFn { f: self.f.clone() }
         }
     }
 }
@@ -100,20 +100,16 @@ fn hello() {
 
     let mut h2 = Server::new(
         SyncServiceFn::new(|_request| {
-            let response = http::Response::builder()
-                .status(200)
-                .body(NoBody)
-                .unwrap();
+            let response = http::Response::builder().status(200).body(NoBody).unwrap();
 
             Ok::<_, tower_h2::Error>(response.into())
         }),
-        Default::default(), TaskExecutor::current());
+        Default::default(),
+        TaskExecutor::current(),
+    );
 
     let f = h2.serve(io).map_err(|e| panic!("err={:?}", e)).join(client);
-    Runtime::new()
-        .unwrap()
-        .block_on(f)
-        .unwrap();
+    Runtime::new().unwrap().block_on(f).unwrap();
 }
 
 #[test]
@@ -126,41 +122,32 @@ fn hello_bodies() {
         .assert_server_handshake()
         .unwrap()
         .recv_settings()
-        .send_frame(
-            frames::headers(1)
-                .request("GET", "https://example.com/")
-        )
-        .send_frame(
-            frames::data(1, "hello world").eos()
-        )
+        .send_frame(frames::headers(1).request("GET", "https://example.com/"))
+        .send_frame(frames::data(1, "hello world").eos())
         .recv_frame(frames::headers(1).response(200))
-
         .recv_frame(frames::data(1, "hello back").eos())
         .close();
 
     let mut h2 = Server::new(
         SyncServiceFn::new(|request: http::Request<tower_h2::RecvBody>| {
             let (_, body) = request.into_parts();
-            read_recv_body(body)
-                .and_then(|body| {
-                    assert_eq!(body, Some("hello world".into()));
+            read_recv_body(body).and_then(|body| {
+                assert_eq!(body, Some("hello world".into()));
 
-                    let response = http::Response::builder()
-                        .status(200)
-                        .body(SendBody::new("hello back"))
-                        .unwrap();
-                    Ok(response)
-                })
+                let response = http::Response::builder()
+                    .status(200)
+                    .body(SendBody::new("hello back"))
+                    .unwrap();
+                Ok(response)
+            })
         }),
-        Default::default(), TaskExecutor::current());
+        Default::default(),
+        TaskExecutor::current(),
+    );
 
     let f = h2.serve(io).map_err(|e| panic!("err={:?}", e)).join(client);
-    Runtime::new()
-        .unwrap()
-        .block_on(f)
-        .unwrap();
+    Runtime::new().unwrap().block_on(f).unwrap();
 }
-
 
 #[test]
 fn hello_rsp_body() {
@@ -175,7 +162,7 @@ fn hello_rsp_body() {
         .send_frame(
             frames::headers(1)
                 .request("GET", "https://example.com/")
-                .eos()
+                .eos(),
         )
         .recv_frame(frames::headers(1).response(200))
         .recv_frame(frames::data(1, "hello back").eos())
@@ -190,13 +177,12 @@ fn hello_rsp_body() {
 
             Ok::<_, tower_h2::Error>(response.into())
         }),
-        Default::default(), TaskExecutor::current());
+        Default::default(),
+        TaskExecutor::current(),
+    );
 
     let f = h2.serve(io).map_err(|e| panic!("err={:?}", e)).join(client);
-    Runtime::new()
-        .unwrap()
-        .block_on(f)
-        .unwrap();
+    Runtime::new().unwrap().block_on(f).unwrap();
 }
 
 #[test]
@@ -209,10 +195,7 @@ fn hello_req_body() {
         .assert_server_handshake()
         .unwrap()
         .recv_settings()
-        .send_frame(
-            frames::headers(1)
-                .request("GET", "https://example.com/")
-        )
+        .send_frame(frames::headers(1).request("GET", "https://example.com/"))
         .send_frame(frames::data(1, "hello "))
         .send_frame(frames::data(1, "world").eos())
         .recv_frame(frames::headers(1).response(200).eos())
@@ -221,24 +204,19 @@ fn hello_req_body() {
     let mut h2 = Server::new(
         SyncServiceFn::new(|request: http::Request<tower_h2::RecvBody>| {
             let (_, body) = request.into_parts();
-            read_recv_body(body)
-                .and_then(|body| {
-                    assert_eq!(body, Some("hello world".into()));
+            read_recv_body(body).and_then(|body| {
+                assert_eq!(body, Some("hello world".into()));
 
-                    let response = http::Response::builder()
-                        .status(200)
-                        .body(NoBody)
-                        .unwrap();
-                    Ok(response)
-                })
+                let response = http::Response::builder().status(200).body(NoBody).unwrap();
+                Ok(response)
+            })
         }),
-        Default::default(), TaskExecutor::current());
+        Default::default(),
+        TaskExecutor::current(),
+    );
 
     let f = h2.serve(io).map_err(|e| panic!("err={:?}", e)).join(client);
-    Runtime::new()
-        .unwrap()
-        .block_on(f)
-        .unwrap();
+    Runtime::new().unwrap().block_on(f).unwrap();
 }
 
 #[test]
@@ -258,22 +236,19 @@ fn respects_flow_control_eos_signal() {
         fn new(cnt: Rc<Cell<usize>>) -> Zeros {
             let buf = vec![0; 16_384].into();
 
-            Zeros {
-                buf,
-                cnt,
-            }
+            Zeros { buf, cnt }
         }
     }
 
     impl Body for Zeros {
-        type Item = <Bytes as IntoBuf>::Buf;
+        type Data = <Bytes as IntoBuf>::Buf;
         type Error = tower_h2::Error;
 
         fn is_end_stream(&self) -> bool {
             self.cnt.get() == 5
         }
 
-        fn poll_buf(&mut self) -> Poll<Option<Self::Item>, tower_h2::Error> {
+        fn poll_data(&mut self) -> Poll<Option<Self::Data>, tower_h2::Error> {
             let cnt = self.cnt.get();
 
             if cnt == 5 {
@@ -313,12 +288,8 @@ fn respects_flow_control_eos_signal() {
             assert_eq!(4, cnt2.get());
             Ok(v)
         })
-        .send_frame(
-            frames::window_update(0, 1_000_000)
-        )
-        .send_frame(
-            frames::window_update(1, 1_000_000)
-        )
+        .send_frame(frames::window_update(0, 1_000_000))
+        .send_frame(frames::window_update(1, 1_000_000))
         .recv_frame(frames::data(1, &frame[..1]))
         .recv_frame(frames::data(1, &frame[..]).eos())
         .close();
@@ -332,13 +303,12 @@ fn respects_flow_control_eos_signal() {
 
             Ok::<_, tower_h2::Error>(response.into())
         }),
-        Default::default(), TaskExecutor::current());
+        Default::default(),
+        TaskExecutor::current(),
+    );
 
     let f = h2.serve(io).map_err(|e| panic!("err={:?}", e)).join(client);
-    Runtime::new()
-        .unwrap()
-        .block_on(f)
-        .unwrap();
+    Runtime::new().unwrap().block_on(f).unwrap();
 }
 
 #[test]
@@ -358,18 +328,15 @@ fn respects_flow_control_no_eos_signal() {
         fn new(cnt: Rc<Cell<usize>>) -> Zeros {
             let buf = vec![0; 16_384].into();
 
-            Zeros {
-                buf,
-                cnt,
-            }
+            Zeros { buf, cnt }
         }
     }
 
     impl Body for Zeros {
-        type Item = <Bytes as IntoBuf>::Buf;
+        type Data = <Bytes as IntoBuf>::Buf;
         type Error = tower_h2::Error;
 
-        fn poll_buf(&mut self) -> Poll<Option<Self::Item>, tower_h2::Error> {
+        fn poll_data(&mut self) -> Poll<Option<Self::Data>, tower_h2::Error> {
             let cnt = self.cnt.get();
 
             if cnt == 5 {
@@ -409,12 +376,8 @@ fn respects_flow_control_no_eos_signal() {
             assert_eq!(4, cnt2.get());
             Ok(v)
         })
-        .send_frame(
-            frames::window_update(0, 1_000_000)
-        )
-        .send_frame(
-            frames::window_update(1, 1_000_000)
-        )
+        .send_frame(frames::window_update(0, 1_000_000))
+        .send_frame(frames::window_update(1, 1_000_000))
         .recv_frame(frames::data(1, &frame[..1]))
         .recv_frame(frames::data(1, &frame[..]))
         .recv_frame(frames::data(1, &b""[..]).eos())
@@ -429,20 +392,19 @@ fn respects_flow_control_no_eos_signal() {
 
             Ok::<_, tower_h2::Error>(response.into())
         }),
-        Default::default(), TaskExecutor::current());
+        Default::default(),
+        TaskExecutor::current(),
+    );
 
     let f = h2.serve(io).map_err(|e| panic!("err={:?}", e)).join(client);
-    Runtime::new()
-        .unwrap()
-        .block_on(f)
-        .unwrap();
+    Runtime::new().unwrap().block_on(f).unwrap();
 }
 
 #[test]
 fn flushing_body_cancels_if_reset() {
     use futures::{Async, Poll};
-    use std::rc::Rc;
     use std::cell::Cell;
+    use std::rc::Rc;
 
     let _ = ::env_logger::try_init();
 
@@ -472,10 +434,10 @@ fn flushing_body_cancels_if_reset() {
     }
 
     impl Body for Zeros {
-        type Item = <Bytes as IntoBuf>::Buf;
+        type Data = <Bytes as IntoBuf>::Buf;
         type Error = tower_h2::Error;
 
-        fn poll_buf(&mut self) -> Poll<Option<Self::Item>, tower_h2::Error> {
+        fn poll_data(&mut self) -> Poll<Option<Self::Data>, tower_h2::Error> {
             if self.cnt == 1 {
                 Ok(Async::NotReady)
             } else {
@@ -520,7 +482,9 @@ fn flushing_body_cancels_if_reset() {
 
             Ok::<_, tower_h2::Error>(response.into())
         }),
-        Default::default(), TaskExecutor::current());
+        Default::default(),
+        TaskExecutor::current(),
+    );
 
     // hold on to the runtime so that after block_on, it isn't dropped
     // immediately, which defeats our test.
@@ -551,11 +515,10 @@ impl std::error::Error for Nesty {
 struct ErrorBody(bool);
 
 impl Body for ErrorBody {
-    type Item = <Bytes as IntoBuf>::Buf;
+    type Data = <Bytes as IntoBuf>::Buf;
     type Error = Nesty;
 
-
-    fn poll_buf(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+    fn poll_data(&mut self) -> Poll<Option<Self::Data>, Self::Error> {
         if self.0 {
             Ok(None.into())
         } else {
@@ -569,7 +532,9 @@ impl Body for ErrorBody {
     fn poll_trailers(&mut self) -> Poll<Option<http::HeaderMap>, Self::Error> {
         // lol? refused after sending headers?
         // oh well, h2-support doesnt have other easier reasons to test
-        Err(Nesty(tower_h2::Error::from(tower_h2::Reason::REFUSED_STREAM).into()))
+        Err(Nesty(
+            tower_h2::Error::from(tower_h2::Reason::REFUSED_STREAM).into(),
+        ))
     }
 }
 
@@ -615,21 +580,18 @@ fn service_error_sends_reset() {
             match req.uri().path() {
                 "/refused" => Err(tower_h2::Error::from(tower_h2::Reason::REFUSED_STREAM).into()),
                 "/nested" => {
-                    let err = Nesty(
-                        tower_h2::Error::from(tower_h2::Reason::REFUSED_STREAM).into(),
-                    );
+                    let err = Nesty(tower_h2::Error::from(tower_h2::Reason::REFUSED_STREAM).into());
                     let err = Nesty(err.into());
                     Err(err.into())
-                },
+                }
                 "/body" => Ok(http::Response::new(ErrorBody(false))),
                 _ => Err("no h2 in chain".into()),
             }
         }),
-        Default::default(), TaskExecutor::current());
+        Default::default(),
+        TaskExecutor::current(),
+    );
 
     let f = h2.serve(io).map_err(|e| panic!("err={:?}", e)).join(client);
-    Runtime::new()
-        .unwrap()
-        .block_on(f)
-        .unwrap();
+    Runtime::new().unwrap().block_on(f).unwrap();
 }
