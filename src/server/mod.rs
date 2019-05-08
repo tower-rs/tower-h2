@@ -1,23 +1,24 @@
-use {flush, Body, RecvBody};
 use buf::SendBuf;
+use {flush, Body, RecvBody};
 
-use tower_service::Service;
 use tower::MakeService;
+use tower_service::Service;
 
+use futures::future::{Either, Executor, Join, MapErr};
 use futures::{Async, Future, Poll, Stream};
-use futures::future::{Executor, Either, Join, MapErr};
 use h2;
 use h2::server::{Connection as Accept, Handshake, SendResponse};
 use http::{Request, Response};
 use tokio_io::{AsyncRead, AsyncWrite};
 
-use std::{error, fmt, mem};
 use std::marker::PhantomData;
+use std::{error, fmt, mem};
 
 /// Attaches service implementations to h2 connections.
 pub struct Server<S, E, B>
-where S: MakeService<(), Request<RecvBody>>,
-      B: Body,
+where
+    S: MakeService<(), Request<RecvBody>>,
+    B: Body,
 {
     new_service: S,
     builder: h2::server::Builder,
@@ -27,9 +28,10 @@ where S: MakeService<(), Request<RecvBody>>,
 
 /// Drives connection-level I/O .
 pub struct Connection<T, S, E, B, F>
-where T: AsyncRead + AsyncWrite,
-      S: MakeService<(), Request<RecvBody>>,
-      B: Body,
+where
+    T: AsyncRead + AsyncWrite,
+    S: MakeService<(), Request<RecvBody>>,
+    B: Body,
 {
     state: State<T, S, B>,
     executor: E,
@@ -43,23 +45,24 @@ pub trait Modify {
 }
 
 enum State<T, S, B>
-where T: AsyncRead + AsyncWrite,
-      S: MakeService<(), Request<RecvBody>>,
-      B: Body,
+where
+    T: AsyncRead + AsyncWrite,
+    S: MakeService<(), Request<RecvBody>>,
+    B: Body,
 {
     /// Establish the HTTP/2.0 connection and get a service to process inbound
     /// requests.
-    Init(Init<T, SendBuf<B::Item>, S::Future, S::MakeError>),
+    Init(Init<T, SendBuf<B::Data>, S::Future, S::MakeError>),
 
     /// Both the HTTP/2.0 connection and the service are ready.
     Ready {
-        connection: Accept<T, SendBuf<B::Item>>,
+        connection: Accept<T, SendBuf<B::Data>>,
         service: S::Service,
     },
 
     /// The service has closed, so poll until connection is closed.
     GoAway {
-        connection: Accept<T, SendBuf<B::Item>>,
+        connection: Accept<T, SendBuf<B::Data>>,
         error: Error<S>,
     },
 
@@ -67,26 +70,25 @@ where T: AsyncRead + AsyncWrite,
     Done,
 }
 
-type Init<T, B, S, E> =
-    Join<
-        MapErr<Handshake<T, B>, MapErrA<E>>,
-        MapErr<S, MapErrB<E>>>;
+type Init<T, B, S, E> = Join<MapErr<Handshake<T, B>, MapErrA<E>>, MapErr<S, MapErrB<E>>>;
 
 type MapErrA<E> = fn(h2::Error) -> Either<h2::Error, E>;
 type MapErrB<E> = fn(E) -> Either<h2::Error, E>;
 
 /// Task used to process requests
 pub struct Background<T, B>
-where B: Body,
+where
+    B: Body,
 {
     state: BackgroundState<T, B>,
 }
 
 enum BackgroundState<T, B>
-where B: Body,
+where
+    B: Body,
 {
     Respond {
-        respond: SendResponse<SendBuf<B::Item>>,
+        respond: SendResponse<SendBuf<B::Data>>,
         response: T,
     },
     Flush(flush::Flush<B>),
@@ -94,7 +96,8 @@ where B: Body,
 
 /// Error produced by a `Connection`.
 pub enum Error<S>
-where S: MakeService<(), Request<RecvBody>>,
+where
+    S: MakeService<(), Request<RecvBody>>,
 {
     /// Error produced during the HTTP/2.0 handshake.
     Handshake(h2::Error),
@@ -125,8 +128,7 @@ where
     S::Error: Into<Box<dyn std::error::Error>>,
     B: Body + 'static,
     B::Error: Into<Box<dyn std::error::Error>>,
-    E: Clone
-        + Executor<Background<<S::Service as Service<Request<RecvBody>>>::Future, B>>,
+    E: Clone + Executor<Background<<S::Service as Service<Request<RecvBody>>>::Future, B>>,
 {
     pub fn new(new_service: S, builder: h2::server::Builder, executor: E) -> Self {
         Server {
@@ -138,34 +140,40 @@ where
     }
 }
 
-
 impl<S, E, B> Server<S, E, B>
-where S: MakeService<(), Request<RecvBody>, Response = Response<B>>,
-      B: Body,
-      B::Item: 'static,
-      B::Error: Into<Box<dyn std::error::Error>>,
-      E: Clone,
+where
+    S: MakeService<(), Request<RecvBody>, Response = Response<B>>,
+    B: Body,
+    B::Data: 'static,
+    B::Error: Into<Box<dyn std::error::Error>>,
+    E: Clone,
 {
     /// Produces a future that is satisfied once the h2 connection has been initialized.
     pub fn serve<T>(&mut self, io: T) -> Connection<T, S, E, B, ()>
-    where T: AsyncRead + AsyncWrite,
+    where
+        T: AsyncRead + AsyncWrite,
     {
         self.serve_modified(io, ())
     }
 
     pub fn serve_modified<T, F>(&mut self, io: T, modify: F) -> Connection<T, S, E, B, F>
-    where T: AsyncRead + AsyncWrite,
-          F: Modify,
+    where
+        T: AsyncRead + AsyncWrite,
+        F: Modify,
     {
         // Clone a handle to the executor so that it can be moved into the
         // connection handle
         let executor = self.executor.clone();
 
-        let service = self.new_service.make_service(())
+        let service = self
+            .new_service
+            .make_service(())
             .map_err(Either::B as MapErrB<S::MakeError>);
 
         // TODO we should specify initial settings here!
-        let handshake = self.builder.handshake(io)
+        let handshake = self
+            .builder
+            .handshake(io)
             .map_err(Either::A as MapErrA<S::MakeError>);
 
         Connection {
@@ -196,13 +204,14 @@ where
 // ===== impl Connection =====
 
 impl<T, S, E, B, F> Future for Connection<T, S, E, B, F>
-where T: AsyncRead + AsyncWrite,
-      S: MakeService<(), Request<RecvBody>, Response = Response<B>>,
-      S::Error: Into<Box<dyn std::error::Error>>,
-      E: Executor<Background<<S::Service as Service<Request<RecvBody>>>::Future, B>>,
-      B: Body + 'static,
-      B::Error: Into<Box<dyn std::error::Error>>,
-      F: Modify,
+where
+    T: AsyncRead + AsyncWrite,
+    S: MakeService<(), Request<RecvBody>, Response = Response<B>>,
+    S::Error: Into<Box<dyn std::error::Error>>,
+    E: Executor<Background<<S::Service as Service<Request<RecvBody>>>::Future, B>>,
+    B: Body + 'static,
+    B::Error: Into<Box<dyn std::error::Error>>,
+    F: Modify,
 {
     type Item = ();
     type Error = Error<S>;
@@ -218,13 +227,14 @@ where T: AsyncRead + AsyncWrite,
 }
 
 impl<T, S, E, B, F> Connection<T, S, E, B, F>
-where T: AsyncRead + AsyncWrite,
-      S: MakeService<(), Request<RecvBody>, Response = Response<B>>,
-      S::Error: Into<Box<dyn std::error::Error>>,
-      E: Executor<Background<<S::Service as Service<Request<RecvBody>>>::Future, B>>,
-      B: Body + 'static,
-      B::Error: Into<Box<dyn std::error::Error>>,
-      F: Modify,
+where
+    T: AsyncRead + AsyncWrite,
+    S: MakeService<(), Request<RecvBody>, Response = Response<B>>,
+    S::Error: Into<Box<dyn std::error::Error>>,
+    E: Executor<Background<<S::Service as Service<Request<RecvBody>>>::Future, B>>,
+    B: Body + 'static,
+    B::Error: Into<Box<dyn std::error::Error>>,
+    F: Modify,
 {
     /// Start an HTTP2 graceful shutdown.
     ///
@@ -233,11 +243,13 @@ where T: AsyncRead + AsyncWrite,
         match self.state {
             State::Init(_) => {
                 // Never connected, just switch to Done...
-            },
-            State::Ready { ref mut connection, .. } => {
+            }
+            State::Ready {
+                ref mut connection, ..
+            } => {
                 connection.graceful_shutdown();
                 return;
-            },
+            }
             State::GoAway { .. } => return,
             State::Done => return,
         }
@@ -249,13 +261,11 @@ where T: AsyncRead + AsyncWrite,
         loop {
             match self.state {
                 State::Init(..) => try_ready!(self.poll_init()),
-                State::Ready { .. } => {
-                    match try_ready!(self.poll_main()) {
-                        PollMain::Again => continue,
-                        PollMain::Done => {
-                            self.state = State::Done;
-                            return Ok(().into());
-                        }
+                State::Ready { .. } => match try_ready!(self.poll_main()) {
+                    PollMain::Again => continue,
+                    PollMain::Done => {
+                        self.state = State::Done;
+                        return Ok(().into());
                     }
                 },
                 State::GoAway { .. } => try_ready!(self.poll_goaway()),
@@ -272,14 +282,20 @@ where T: AsyncRead + AsyncWrite,
             _ => unreachable!(),
         };
 
-        self.state = Ready { connection, service };
+        self.state = Ready {
+            connection,
+            service,
+        };
 
         Ok(().into())
     }
 
     fn poll_main(&mut self) -> Poll<PollMain, Error<S>> {
         let error = match self.state {
-            State::Ready { ref mut connection, ref mut service } => loop {
+            State::Ready {
+                ref mut connection,
+                ref mut service,
+            } => loop {
                 // Make sure the service is ready
                 match service.poll_ready() {
                     Ok(Async::Ready(())) => (),
@@ -288,8 +304,7 @@ where T: AsyncRead + AsyncWrite,
                         // we do nothing. We must keep polling the connection
                         // regardless. However, since we don't want to accept
                         // a request, we `poll_close` instead of `poll`.
-                        let next = connection.poll_close()
-                            .map_err(Error::Protocol);
+                        let next = connection.poll_close().map_err(Error::Protocol);
 
                         // If not ready, we'll get polled again.
                         try_ready!(next);
@@ -297,7 +312,7 @@ where T: AsyncRead + AsyncWrite,
                         // If poll_close was ready, that means the connection
                         // is closed. All done!
                         return Ok(PollMain::Done.into());
-                    },
+                    }
                     Err(err) => {
                         trace!("service closed");
                         // service is closed, transition to goaway state
@@ -305,8 +320,7 @@ where T: AsyncRead + AsyncWrite,
                     }
                 }
 
-                let next = connection.poll()
-                    .map_err(Error::Protocol);
+                let next = connection.poll().map_err(Error::Protocol);
 
                 let (request, respond) = match try_ready!(next) {
                     Some(next) => next,
@@ -330,7 +344,7 @@ where T: AsyncRead + AsyncWrite,
                 if let Err(_) = self.executor.execute(Background::new(respond, response)) {
                     break Error::Execute;
                 }
-            }
+            },
             _ => unreachable!(),
         };
 
@@ -340,20 +354,19 @@ where T: AsyncRead + AsyncWrite,
             State::Ready { mut connection, .. } => {
                 connection.graceful_shutdown();
 
-                self.state = State::GoAway {
-                    connection,
-                    error,
-                };
+                self.state = State::GoAway { connection, error };
 
                 Ok(Async::Ready(PollMain::Again))
-            },
+            }
             _ => unreachable!(),
         }
     }
 
     fn poll_goaway(&mut self) -> Poll<(), Error<S>> {
         match self.state {
-            State::GoAway { ref mut connection, .. } => {
+            State::GoAway {
+                ref mut connection, ..
+            } => {
                 try_ready!(connection.poll_close().map_err(Error::Protocol));
             }
             _ => unreachable!(),
@@ -365,7 +378,7 @@ where T: AsyncRead + AsyncWrite,
             State::GoAway { error, .. } => {
                 trace!("goaway completed");
                 Err(error)
-            },
+            }
             _ => unreachable!(),
         }
     }
@@ -374,7 +387,8 @@ where T: AsyncRead + AsyncWrite,
 // ===== impl Modify =====
 
 impl<T> Modify for T
-where T: FnMut(&mut Request<()>)
+where
+    T: FnMut(&mut Request<()>),
 {
     fn modify(&mut self, request: &mut Request<()>) {
         (*self)(request);
@@ -382,33 +396,29 @@ where T: FnMut(&mut Request<()>)
 }
 
 impl Modify for () {
-    fn modify(&mut self, _: &mut Request<()>) {
-    }
+    fn modify(&mut self, _: &mut Request<()>) {}
 }
 
 // ===== impl Background =====
 
 impl<T, B> Background<T, B>
-where T: Future,
-      B: Body,
+where
+    T: Future,
+    B: Body,
 {
-    fn new(respond: SendResponse<SendBuf<B::Item>>, response: T)
-        -> Self
-    {
+    fn new(respond: SendResponse<SendBuf<B::Data>>, response: T) -> Self {
         Background {
-            state: BackgroundState::Respond {
-                respond,
-                response,
-            },
+            state: BackgroundState::Respond { respond, response },
         }
     }
 }
 
 impl<T, B> Future for Background<T, B>
-where T: Future<Item = Response<B>>,
-      T::Error: Into<Box<dyn std::error::Error>>,
-      B: Body,
-      B::Error: Into<Box<dyn std::error::Error>>,
+where
+    T: Future<Item = Response<B>>,
+    T::Error: Into<Box<dyn std::error::Error>>,
+    B: Body,
+    B::Error: Into<Box<dyn std::error::Error>>,
 {
     type Item = ();
     type Error = ();
@@ -418,7 +428,10 @@ where T: Future<Item = Response<B>>,
 
         loop {
             let flush = match self.state {
-                Respond { ref mut respond, ref mut response } => {
+                Respond {
+                    ref mut respond,
+                    ref mut response,
+                } => {
                     use flush::Flush;
 
                     // Check if the client has reset this stream...
@@ -426,13 +439,13 @@ where T: Future<Item = Response<B>>,
                         Ok(Async::Ready(reason)) => {
                             debug!("stream received RST_FRAME: {:?}", reason);
                             return Ok(().into());
-                        },
+                        }
                         Ok(Async::NotReady) => {
                             // The client hasn't reset this stream yet, so keep
                             // trying to process the response future. This will
                             // have registered this task in case the client
                             // DOES reset at a later point.
-                        },
+                        }
                         Err(err) => {
                             debug!("stream poll_reset received error: {}", err);
                             return Err(());
@@ -480,7 +493,8 @@ where T: Future<Item = Response<B>>,
 // ===== impl Error =====
 
 impl<S> Error<S>
-where S: MakeService<(), Request<RecvBody>>,
+where
+    S: MakeService<(), Request<RecvBody>>,
 {
     fn from_init(err: Either<h2::Error, S::MakeError>) -> Self {
         match err {
@@ -498,18 +512,10 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::Handshake(ref why) => f.debug_tuple("Handshake")
-                .field(why)
-                .finish(),
-            Error::Protocol(ref why) => f.debug_tuple("Protocol")
-                .field(why)
-                .finish(),
-            Error::NewService(ref why) => f.debug_tuple("NewService")
-                .field(why)
-                .finish(),
-            Error::Service(ref why) => f.debug_tuple("Service")
-                .field(why)
-                .finish(),
+            Error::Handshake(ref why) => f.debug_tuple("Handshake").field(why).finish(),
+            Error::Protocol(ref why) => f.debug_tuple("Protocol").field(why).finish(),
+            Error::NewService(ref why) => f.debug_tuple("NewService").field(why).finish(),
+            Error::Service(ref why) => f.debug_tuple("Service").field(why).finish(),
             Error::Execute => f.debug_tuple("Execute").finish(),
         }
     }
@@ -523,16 +529,15 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::Handshake(ref why) =>
-                write!(f, "Error occurred during HTTP/2.0 handshake: {}", why),
-            Error::Protocol(ref why) =>
-                write!(f, "Error produced by HTTP/2.0 stream: {}", why),
-            Error::NewService(ref why) =>
-                write!(f, "Error occurred while obtaining service: {}", why),
-            Error::Service(ref why) =>
-                write!(f, "Error returned by service: {}", why),
-            Error::Execute =>
-                write!(f, "Error occurred while attempting to spawn a task"),
+            Error::Handshake(ref why) => {
+                write!(f, "Error occurred during HTTP/2.0 handshake: {}", why)
+            }
+            Error::Protocol(ref why) => write!(f, "Error produced by HTTP/2.0 stream: {}", why),
+            Error::NewService(ref why) => {
+                write!(f, "Error occurred while obtaining service: {}", why)
+            }
+            Error::Service(ref why) => write!(f, "Error returned by service: {}", why),
+            Error::Execute => write!(f, "Error occurred while attempting to spawn a task"),
         }
     }
 }
@@ -555,7 +560,7 @@ where
 
     fn description(&self) -> &str {
         match *self {
-            Error::Handshake(_) =>  "error occurred during HTTP/2.0 handshake",
+            Error::Handshake(_) => "error occurred during HTTP/2.0 handshake",
             Error::Protocol(_) => "error produced by HTTP/2.0 stream",
             Error::NewService(_) => "error occured while obtaining service",
             Error::Service(_) => "error returned by service",
@@ -563,4 +568,3 @@ where
         }
     }
 }
-

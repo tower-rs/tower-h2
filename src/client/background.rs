@@ -1,6 +1,6 @@
-use Body;
 use buf::SendBuf;
 use flush::Flush;
+use Body;
 
 use futures::{Future, Poll};
 use h2::client::Connection;
@@ -10,25 +10,28 @@ use tokio_io::{AsyncRead, AsyncWrite};
 ///
 /// This is not used directly by a user of this library.
 pub struct Background<T, S>
-where S: Body,
+where
+    S: Body,
 {
     task: Task<T, S>,
 }
 
 /// The specific task to execute
 enum Task<T, S>
-where S: Body,
+where
+    S: Body,
 {
-    Connection(Connection<T, SendBuf<S::Item>>),
+    Connection(Connection<T, SendBuf<S::Data>>),
     Flush(Flush<S>),
 }
 
 // ===== impl Background =====
 
 impl<T, S> Background<T, S>
-where S: Body,
+where
+    S: Body,
 {
-    pub(crate) fn connection(connection: Connection<T, SendBuf<S::Item>>) -> Self {
+    pub(crate) fn connection(connection: Connection<T, SendBuf<S::Data>>) -> Self {
         let task = Task::Connection(connection);
         Background { task }
     }
@@ -40,10 +43,11 @@ where S: Body,
 }
 
 impl<T, S> Future for Background<T, S>
-where T: AsyncRead + AsyncWrite,
-      S: Body,
-      S::Item: 'static,
-      S::Error: Into<Box<dyn std::error::Error>>,
+where
+    T: AsyncRead + AsyncWrite,
+    S: Body,
+    S::Data: 'static,
+    S::Error: Into<Box<dyn std::error::Error>>,
 {
     type Item = ();
     type Error = ();

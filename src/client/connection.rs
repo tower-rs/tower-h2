@@ -1,33 +1,35 @@
-use {Body, RecvBody};
 use super::Background;
 use buf::SendBuf;
 use flush::Flush;
+use {Body, RecvBody};
 
-use futures::{Future, Poll, Async};
 use futures::future::Executor;
+use futures::{Async, Future, Poll};
 use h2;
-use h2::client::{self, SendRequest, Builder};
+use h2::client::{self, Builder, SendRequest};
 use http::{self, Request, Response};
 use tokio_io::{AsyncRead, AsyncWrite};
 use tower_service::Service;
 
-use std::{error, fmt};
 use std::marker::PhantomData;
+use std::{error, fmt};
 
 /// Exposes a request/response API on an h2 client connection..
 pub struct Connection<T, E, S>
-where S: Body,
+where
+    S: Body,
 {
-    client: SendRequest<SendBuf<S::Item>>,
+    client: SendRequest<SendBuf<S::Data>>,
     executor: E,
     _p: PhantomData<(T, S)>,
 }
 
 /// In progress HTTP/2.0 client handshake.
 pub struct Handshake<T, E, S>
-where S: Body,
+where
+    S: Body,
 {
-    inner: h2::client::Handshake<T, SendBuf<S::Item>>,
+    inner: h2::client::Handshake<T, SendBuf<S::Data>>,
     executor: E,
 }
 
@@ -74,16 +76,15 @@ enum Kind {
 // ===== impl Connection =====
 
 impl<T, E, S> Connection<T, E, S>
-where S: Body,
-      S::Item: 'static,
-      S::Error: Into<Box<dyn std::error::Error>>,
-      E: Executor<Background<T, S>>,
-      T: AsyncRead + AsyncWrite,
+where
+    S: Body,
+    S::Data: 'static,
+    S::Error: Into<Box<dyn std::error::Error>>,
+    E: Executor<Background<T, S>>,
+    T: AsyncRead + AsyncWrite,
 {
     /// Builds Connection on an H2 client connection.
-    pub(crate) fn new(client: SendRequest<SendBuf<S::Item>>, executor: E)
-        -> Self
-    {
+    pub(crate) fn new(client: SendRequest<SendBuf<S::Data>>, executor: E) -> Self {
         let _p = PhantomData;
 
         Connection {
@@ -100,8 +101,9 @@ where S: Body,
 }
 
 impl<T, E, S> Clone for Connection<T, E, S>
-where S: Body,
-      E: Clone,
+where
+    S: Body,
+    E: Clone,
 {
     fn clone(&self) -> Self {
         Connection {
@@ -113,19 +115,19 @@ where S: Body,
 }
 
 impl<T, E, S> Service<Request<S>> for Connection<T, E, S>
-where S: Body + 'static,
-      S::Item: 'static,
-      S::Error: Into<Box<dyn std::error::Error>>,
-      E: Executor<Background<T, S>>,
-      T: AsyncRead + AsyncWrite,
+where
+    S: Body + 'static,
+    S::Data: 'static,
+    S::Error: Into<Box<dyn std::error::Error>>,
+    E: Executor<Background<T, S>>,
+    T: AsyncRead + AsyncWrite,
 {
     type Response = Response<RecvBody>;
     type Error = Error;
     type Future = ResponseFuture;
 
     fn poll_ready(&mut self) -> Poll<(), Self::Error> {
-        self.client.poll_ready()
-            .map_err(Into::into)
+        self.client.poll_ready().map_err(Into::into)
     }
 
     fn call(&mut self, request: Request<S>) -> Self::Future {
@@ -145,7 +147,9 @@ where S: Body + 'static,
         let (response, send_body) = match res {
             Ok(success) => success,
             Err(e) => {
-                let e = Error { kind: Kind::Inner(e) };
+                let e = Error {
+                    kind: Kind::Inner(e),
+                };
                 let inner = Inner::Error(Some(e));
                 return ResponseFuture { inner };
             }
@@ -162,7 +166,9 @@ where S: Body + 'static,
             }
         }
 
-        ResponseFuture { inner: Inner::Inner(response) }
+        ResponseFuture {
+            inner: Inner::Inner(response),
+        }
     }
 }
 
@@ -205,27 +211,26 @@ impl ResponseFuture {
 // ===== impl Handshake =====
 
 impl<T, E, S> Handshake<T, E, S>
-where T: AsyncRead + AsyncWrite,
-      S: Body,
-      S::Item: 'static,
+where
+    T: AsyncRead + AsyncWrite,
+    S: Body,
+    S::Data: 'static,
 {
     /// Start an HTTP/2.0 handshake with the provided builder
     pub(crate) fn new(io: T, executor: E, builder: &Builder) -> Self {
         let inner = builder.handshake(io);
 
-        Handshake {
-            inner,
-            executor,
-        }
+        Handshake { inner, executor }
     }
 }
 
 impl<T, E, S> Future for Handshake<T, E, S>
-where T: AsyncRead + AsyncWrite,
-      E: Executor<Background<T, S>> + Clone,
-      S: Body,
-      S::Item: 'static,
-      S::Error: Into<Box<dyn std::error::Error>>,
+where
+    T: AsyncRead + AsyncWrite,
+    E: Executor<Background<T, S>> + Clone,
+    S: Body,
+    S::Data: 'static,
+    S::Error: Into<Box<dyn std::error::Error>>,
 {
     type Item = Connection<T, E, S>;
     type Error = HandshakeError;
@@ -235,11 +240,10 @@ where T: AsyncRead + AsyncWrite,
 
         // Spawn the worker task
         let task = Background::connection(connection);
-        self.executor.execute(task)
-            .map_err(|err| {
-                warn!("error handshaking: {:?}", err);
-                HandshakeError::Execute
-            })?;
+        self.executor.execute(task).map_err(|err| {
+            warn!("error handshaking: {:?}", err);
+            HandshakeError::Execute
+        })?;
 
         // Create an instance of the service
         let service = Connection::new(client, self.executor.clone());
@@ -261,7 +265,9 @@ impl Error {
 
 impl From<h2::Error> for Error {
     fn from(src: h2::Error) -> Self {
-        Error { kind: Kind::Inner(src) }
+        Error {
+            kind: Kind::Inner(src),
+        }
     }
 }
 
@@ -274,10 +280,8 @@ impl From<h2::Reason> for Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.kind {
-            Kind::Inner(ref h2) =>
-                write!(f, "Error caused by underlying HTTP/2 error: {}", h2),
-            Kind::Spawn =>
-                write!(f, "Error spawning background task"),
+            Kind::Inner(ref h2) => write!(f, "Error caused by underlying HTTP/2 error: {}", h2),
+            Kind::Spawn => write!(f, "Error spawning background task"),
         }
     }
 }
@@ -294,10 +298,9 @@ impl error::Error for Error {
     fn description(&self) -> &str {
         match self.kind {
             Kind::Inner(ref h2) => h2.description(),
-            Kind::Spawn => "error spawning worker task"
+            Kind::Spawn => "error spawning worker task",
         }
     }
-
 }
 
 // ===== impl HandshakeError =====
@@ -311,15 +314,17 @@ impl From<h2::Error> for HandshakeError {
 impl fmt::Display for HandshakeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            HandshakeError::Proto(ref h2) =>
-                write!(f,
-                    "An error occurred while attempting to perform the HTTP/2 \
-                    handshake: {}",
-                    h2),
-            HandshakeError::Execute =>
-                write!(f,
-                    "An error occurred while attempting to execute a worker \
-                     task."),
+            HandshakeError::Proto(ref h2) => write!(
+                f,
+                "An error occurred while attempting to perform the HTTP/2 \
+                 handshake: {}",
+                h2
+            ),
+            HandshakeError::Execute => write!(
+                f,
+                "An error occurred while attempting to execute a worker \
+                 task."
+            ),
         }
     }
 }
@@ -335,10 +340,8 @@ impl error::Error for HandshakeError {
 
     fn description(&self) -> &str {
         match *self {
-            HandshakeError::Proto(_) =>
-                "error attempting to perform HTTP/2 handshake",
-            HandshakeError::Execute =>
-                "error attempting to execute a worker task",
+            HandshakeError::Proto(_) => "error attempting to perform HTTP/2 handshake",
+            HandshakeError::Execute => "error attempting to execute a worker task",
         }
     }
 }

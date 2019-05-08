@@ -1,15 +1,16 @@
-use Body;
 use buf::SendBuf;
+use Body;
 
-use futures::{Future, Poll, Async};
+use futures::{Async, Future, Poll};
 use h2::{self, SendStream};
 use http::HeaderMap;
 
 /// Flush a body to the HTTP/2.0 send stream
 pub(crate) struct Flush<S>
-where S: Body,
+where
+    S: Body,
 {
-    h2: SendStream<SendBuf<S::Item>>,
+    h2: SendStream<SendBuf<S::Data>>,
     body: S,
     state: FlushState,
 }
@@ -32,9 +33,7 @@ where
     S: Body,
     S::Error: Into<Box<dyn std::error::Error>>,
 {
-    pub fn new(src: S, dst: SendStream<SendBuf<S::Item>>)
-        -> Self
-    {
+    pub fn new(src: S, dst: SendStream<SendBuf<S::Data>>) -> Self {
         Flush {
             h2: dst,
             body: src,
@@ -74,9 +73,7 @@ where
     }
 
     /// Get the next message to write, either a data frame or trailers.
-    fn poll_body(&mut self)
-        -> Poll<Option<DataOrTrailers<S::Item>>, h2::Error>
-    {
+    fn poll_body(&mut self) -> Poll<Option<DataOrTrailers<S::Data>>, h2::Error> {
         loop {
             match self.state {
                 FlushState::Data => {
@@ -108,12 +105,9 @@ where
                         // if the stream has been reset, so we poll for that.
                         match self.h2.poll_reset()? {
                             Async::Ready(reason) => {
-                                debug!(
-                                    "stream received RST_STREAM while flushing: {:?}",
-                                    reason,
-                                );
+                                debug!("stream received RST_STREAM while flushing: {:?}", reason,);
                                 return Err(reason.into());
-                            },
+                            }
                             Async::NotReady => {
                                 // Stream hasn't been reset, so we can try
                                 // to send data below. This task has been
@@ -123,8 +117,7 @@ where
                         }
                     }
 
-
-                    let item = try_ready!(self.body.poll_buf().map_err(|err| {
+                    let item = try_ready!(self.body.poll_data().map_err(|err| {
                         let err = err.into();
                         debug!("user body error from poll_buf: {}", err);
                         let reason = ::error::reason_from_dyn_error(&*err);
@@ -148,7 +141,7 @@ where
                                 reason,
                             );
                             return Err(reason.into());
-                        },
+                        }
                         Async::NotReady => {
                             // Stream hasn't been reset, so we can try
                             // to send trailers below. This task has been
@@ -183,8 +176,7 @@ where
     type Error = ();
 
     fn poll(&mut self) -> Poll<(), ()> {
-        self.poll_complete().map_err(|err| {
-            warn!("error flushing stream: {:?}", err)
-        })
+        self.poll_complete()
+            .map_err(|err| warn!("error flushing stream: {:?}", err))
     }
 }

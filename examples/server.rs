@@ -14,8 +14,8 @@ use futures::*;
 use http::Request;
 use tokio::executor::DefaultExecutor;
 use tokio::net::TcpListener;
-use tower_h2::{Body, Server, RecvBody};
-use tower_service::{Service};
+use tower_h2::{Body, RecvBody, Server};
+use tower_service::Service;
 
 type Response = http::Response<RspBody>;
 
@@ -31,15 +31,18 @@ impl RspBody {
     }
 }
 
-
 impl Body for RspBody {
-    type Item = <Bytes as IntoBuf>::Buf;
+    type Data = <Bytes as IntoBuf>::Buf;
     type Error = h2::Error;
 
-    fn poll_buf(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        let data = self.0
-            .take()
-            .and_then(|b| if b.is_empty() { None } else { Some(b.into_buf()) });
+    fn poll_data(&mut self) -> Poll<Option<Self::Data>, Self::Error> {
+        let data = self.0.take().and_then(|b| {
+            if b.is_empty() {
+                None
+            } else {
+                Some(b.into_buf())
+            }
+        });
         Ok(Async::Ready(data))
     }
 
@@ -110,10 +113,7 @@ fn main() {
                     return Err(e);
                 }
 
-                tokio::spawn({
-                    h2.serve(sock)
-                        .map_err(|e| error!("h2 error: {:?}", e))
-                });
+                tokio::spawn({ h2.serve(sock).map_err(|e| error!("h2 error: {:?}", e)) });
 
                 Ok(h2)
             })
