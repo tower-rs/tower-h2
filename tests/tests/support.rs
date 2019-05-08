@@ -5,24 +5,25 @@ pub extern crate h2_support;
 pub extern crate http;
 pub extern crate tokio;
 pub extern crate tokio_current_thread;
+pub extern crate tower;
 pub extern crate tower_h2;
 pub extern crate tower_service;
-pub extern crate tower;
 
-use bytes::{Bytes, Buf, IntoBuf};
+use bytes::{Buf, Bytes, IntoBuf};
+use futures::{Async, Future, Poll};
 use tower_h2::{Body, RecvBody};
-use futures::{Future, Poll, Async};
 
 // We can't import `try_ready` here because this module isn't at the crate
 // root, so we'll redefine it instead.
 #[macro_export]
 macro_rules! try_ready {
-    ($e:expr) => (match $e {
-        Ok(futures::Async::Ready(t)) => t,
-        Ok(futures::Async::NotReady) =>
-            return Ok(futures::Async::NotReady),
-        Err(e) => return Err(From::from(e)),
-    })
+    ($e:expr) => {
+        match $e {
+            Ok(futures::Async::Ready(t)) => t,
+            Ok(futures::Async::NotReady) => return Ok(futures::Async::NotReady),
+            Err(e) => return Err(From::from(e)),
+        }
+    };
 }
 
 pub struct SendBody(Option<Bytes>);
@@ -34,17 +35,21 @@ impl SendBody {
 }
 
 impl Body for SendBody {
-    type Item = <Bytes as IntoBuf>::Buf;
+    type Data = <Bytes as IntoBuf>::Buf;
     type Error = self::h2::Error;
 
     fn is_end_stream(&self) -> bool {
         self.0.as_ref().map(|b| b.is_empty()).unwrap_or(true)
     }
 
-    fn poll_buf(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        let data = self.0
-            .take()
-            .and_then(|b| if b.is_empty() { None } else { Some(b.into_buf()) });
+    fn poll_data(&mut self) -> Poll<Option<Self::Data>, Self::Error> {
+        let data = self.0.take().and_then(|b| {
+            if b.is_empty() {
+                None
+            } else {
+                Some(b.into_buf())
+            }
+        });
         Ok(Async::Ready(data))
     }
 
@@ -53,12 +58,8 @@ impl Body for SendBody {
     }
 }
 
-
 pub fn read_recv_body(body: RecvBody) -> ReadRecvBody {
-    ReadRecvBody {
-        body,
-        bytes: None,
-    }
+    ReadRecvBody { body, bytes: None }
 }
 pub struct ReadRecvBody {
     body: RecvBody,
@@ -70,13 +71,15 @@ impl Future for ReadRecvBody {
     type Error = self::h2::Error;
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         loop {
-            self.bytes = match try_ready!(self.body.poll_buf()) {
+            self.bytes = match try_ready!(self.body.poll_data()) {
                 None => return Ok(Async::Ready(self.bytes.take().map(Buf::collect))),
-                Some(b) => if self.bytes.as_ref().is_none() {
-                    Some(Box::new(b))
-                } else {
-                    Some(Box::new(self.bytes.take().unwrap().chain(b)))
-                },
+                Some(b) => {
+                    if self.bytes.as_ref().is_none() {
+                        Some(Box::new(b))
+                    } else {
+                        Some(Box::new(self.bytes.take().unwrap().chain(b)))
+                    }
+                }
             }
         }
     }

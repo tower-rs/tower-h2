@@ -1,11 +1,11 @@
+use super::{Background, Connection, Handshake, HandshakeError};
 use Body;
-use super::{Connection, Background, Handshake, HandshakeError};
 
-use tower_service::Service;
 use tower::MakeConnection;
+use tower_service::Service;
 
-use futures::{Future, Poll};
 use futures::future::Executor;
+use futures::{Future, Poll};
 use h2;
 
 use std::error::Error;
@@ -33,8 +33,9 @@ pub struct Connect<A, C, E, S> {
 
 /// Completes with a Connection when the H2 connection has been initialized.
 pub struct ConnectFuture<A, C, E, S>
-where C: MakeConnection<A>,
-      S: Body,
+where
+    C: MakeConnection<A>,
+    S: Body,
 {
     /// Connect state. Starts in "Connect", which attempts to obtain the `io`
     /// handle from the `tokio_connect::Connect` instance. Then, with the
@@ -51,8 +52,9 @@ where C: MakeConnection<A>,
 
 /// Represents the state of a `ConnectFuture`
 enum State<A, C, E, S>
-where C: MakeConnection<A>,
-      S: Body,
+where
+    C: MakeConnection<A>,
+    S: Body,
 {
     Connect(C::Future),
     Handshake(Handshake<C::Connection, E, S>),
@@ -76,7 +78,7 @@ where
     C: MakeConnection<A>,
     E: Executor<Background<C::Connection, S>> + Clone,
     S: Body,
-    S::Item: 'static,
+    S::Data: 'static,
     S::Error: Into<Box<dyn std::error::Error>>,
 {
     /// Create a new `Connect`.
@@ -130,7 +132,7 @@ where
     C: MakeConnection<A>,
     E: Executor<Background<C::Connection, S>> + Clone,
     S: Body,
-    S::Item: 'static,
+    S::Data: 'static,
     S::Error: Into<Box<dyn std::error::Error>>,
 {
     type Item = Connection<C::Connection, E, S>;
@@ -140,14 +142,12 @@ where
         loop {
             let io = match self.state {
                 State::Connect(ref mut fut) => {
-                    let res = fut.poll()
-                        .map_err(ConnectError::Connect);
+                    let res = fut.poll().map_err(ConnectError::Connect);
 
                     try_ready!(res)
                 }
                 State::Handshake(ref mut fut) => {
-                    return fut.poll()
-                        .map_err(ConnectError::Handshake);
+                    return fut.poll().map_err(ConnectError::Handshake);
                 }
             };
 
@@ -163,18 +163,18 @@ where
 
 impl<T> fmt::Display for ConnectError<T>
 where
-    T: Error
+    T: Error,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            ConnectError::Connect(ref why) => write!(f,
+            ConnectError::Connect(ref why) => write!(
+                f,
                 "Error attempting to establish underlying session layer: {}",
                 why
             ),
-            ConnectError::Handshake(ref why) =>  write!(f,
-                "Error while performing HTTP/2.0 handshake: {}",
-                why,
-            ),
+            ConnectError::Handshake(ref why) => {
+                write!(f, "Error while performing HTTP/2.0 handshake: {}", why,)
+            }
         }
     }
 }
@@ -185,10 +185,8 @@ where
 {
     fn description(&self) -> &str {
         match *self {
-            ConnectError::Connect(_) =>
-                "error attempting to establish underlying session layer",
-            ConnectError::Handshake(_) =>
-                "error performing HTTP/2.0 handshake"
+            ConnectError::Connect(_) => "error attempting to establish underlying session layer",
+            ConnectError::Handshake(_) => "error performing HTTP/2.0 handshake",
         }
     }
 

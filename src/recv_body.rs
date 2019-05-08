@@ -1,8 +1,8 @@
-use Body;
-use bytes::{Bytes, BytesMut, Buf};
+use bytes::{Buf, Bytes, BytesMut};
 use futures::{Poll, Stream};
 use h2;
 use http;
+use Body;
 
 /// Allows a stream to be read from the remote.
 #[derive(Debug)]
@@ -31,24 +31,21 @@ impl RecvBody {
 }
 
 impl Body for RecvBody {
-    type Item = Data;
+    type Data = Data;
     type Error = h2::Error;
 
     fn is_end_stream(&self) -> bool {
         self.inner.is_end_stream()
     }
 
-    fn poll_buf(&mut self) -> Poll<Option<Self::Item>, h2::Error> {
-        let data = try_ready!(self.inner.poll())
-            .map(|bytes| {
-                self.inner
-                    .release_capacity()
-                    .release_capacity(bytes.len())
-                    .expect("flow control error");
-                Data {
-                    bytes,
-                }
-            });
+    fn poll_data(&mut self) -> Poll<Option<Self::Data>, h2::Error> {
+        let data = try_ready!(self.inner.poll()).map(|bytes| {
+            self.inner
+                .release_capacity()
+                .release_capacity(bytes.len())
+                .expect("flow control error");
+            Data { bytes }
+        });
 
         Ok(data.into())
     }

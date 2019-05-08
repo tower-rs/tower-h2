@@ -1,6 +1,6 @@
-use Body;
 use bytes::Buf;
 use futures::Poll;
+use Body;
 
 #[derive(Debug, Default)]
 pub struct NoBody;
@@ -9,14 +9,14 @@ pub struct NoBody;
 pub struct NoData;
 
 impl Body for NoBody {
-    type Item = NoData;
+    type Data = NoData;
     type Error = h2::Error;
 
     fn is_end_stream(&self) -> bool {
         true
     }
 
-    fn poll_buf(&mut self) -> Poll<Option<Self::Item>, h2::Error> {
+    fn poll_data(&mut self) -> Poll<Option<Self::Data>, h2::Error> {
         Ok(None.into())
     }
 
@@ -34,6 +34,5 @@ impl Buf for NoData {
         &[]
     }
 
-    fn advance(&mut self, _cnt: usize) {
-    }
+    fn advance(&mut self, _cnt: usize) {}
 }
